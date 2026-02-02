@@ -46,6 +46,45 @@ Perlindungan aktif berbasis jaringan menggunakan layanan VPN lokal Android.
 
 ---
 
+## ⚙️ Cara Kerja Secara Detail
+
+ZeroAd menggabungkan dua mekanisme pertahanan utama: **Analisis Statis & Heuristik** untuk aplikasi terinstal, dan **Penyaringan Jaringan Dinamis** untuk lalu lintas internet.
+
+### 1. Mekanisme Pemindaian Adware (Deep Scan)
+
+Pemindaian dilakukan secara asinkron menggunakan **Kotlin Coroutines** agar tidak mengganggu performa UI. Proses ini melibatkan beberapa fase analisis:
+
+*   **Fase Iterasi Paket:** 
+    ZeroAd menggunakan API `PackageManager` untuk mengambil daftar seluruh paket yang terinstal (`getInstalledApplications`). Pada tahap ini, aplikasi sistem dan aplikasi pihak ketiga dipisahkan namun keduanya tetap dianalisis.
+*   **Analisis Heuristik Izin (Contextual Permission Check):**
+    Mesin pemindai tidak hanya melihat daftar izin, tapi juga melakukan korelasi. 
+    *   *Contoh:* Jika aplikasi kategori "Alat/Kalkulator" meminta izin `BIND_ACCESSIBILITY_SERVICE` dan `SYSTEM_ALERT_WINDOW`, sistem akan memberikan skor penalti tinggi karena kombinasi ini sering digunakan adware untuk menampilkan iklan overlay yang sulit ditutup.
+*   **Deteksi Fingerprint SDK:**
+    Banyak adware membawa *Library* iklan pihak ketiga yang masif. ZeroAd memindai nama paket internal dan *signature* untuk mencari jejak SDK iklan agresif seperti **Presage**, **AppLovin**, atau **AdColony**. Jika sebuah aplikasi memiliki lebih dari 3 SDK iklan yang berbeda, tingkat risikonya akan otomatis naik.
+*   **Analisis Komponen Latar Belakang:**
+    Sistem memeriksa keberadaan `Service` atau `BroadcastReceiver` yang memiliki nama mencurigakan (seperti `BootReceiver` atau `AdActivity`) yang dikonfigurasi untuk berjalan otomatis saat ponsel dinyalakan (`RECEIVE_BOOT_COMPLETED`).
+*   **Kalkulasi ZeroScore:**
+    Setiap temuan dikonversi menjadi poin:
+    *   **High Severity (30 poin):** Izin kritis yang tidak relevan dengan fungsi aplikasi.
+    *   **Medium Severity (15 poin):** Keberadaan SDK iklan agresif atau boot receiver.
+    *   **Low Severity (5 poin):** Nama paket yang mencurigakan.
+    Aplikasi dengan total skor > 30 masuk kategori **Critical**.
+
+### 2. Mekanisme Network Shield (VPN/DNS Interception)
+
+Meskipun disebut "VPN", ZeroAd tidak mengenkripsi atau merutekan lalu lintas ke server luar. Ini adalah **Local DNS Proxy**:
+
+*   **Pembuatan Interface TUN:**
+    ZeroAd menggunakan `VpnService` Android untuk membuat *virtual network interface* di dalam perangkat. Semua lalu lintas internet (IPv4 & IPv6) diarahkan ke interface ini.
+*   **DNS Hijacking (Non-Invasif):**
+    Sistem hanya tertarik pada paket DNS (Port 53). ZeroAd tidak melakukan *Deep Packet Inspection* (DPI) terhadap payload data Anda (seperti isi chat atau password), sehingga sangat aman dan privat.
+*   **Upstream Forwarding:**
+    Setiap permintaan domain (misalnya `m.doubleclick.net`) dikirimkan ke server **AdGuard DNS** (`94.140.14.14`).
+*   **Blocking at Resolution Level:**
+    Jika domain tersebut adalah server iklan, AdGuard akan mengembalikan alamat IP `0.0.0.0` (null). Karena alamatnya tidak valid, aplikasi atau browser tidak akan pernah bisa mengunduh konten iklan tersebut. Iklan tidak akan pernah muncul karena koneksinya "mati" di tingkat DNS.
+
+---
+
 ## 📸 Antarmuka Aplikasi
 
 | Dashboard | Network Shield | Threat Details |
@@ -69,40 +108,18 @@ ZeroAd menggunakan arsitektur hibrida untuk menyeimbangkan performa, fleksibilit
 
 ---
 
-
-
-## ⚙️ Cara Kerja
-
-### Adware Scanner
-ZeroAd memindai aplikasi menggunakan `PackageManager` dan melakukan analisis read-only berdasarkan:
-1.  **Permissions** – Konsistensi antara fungsi aplikasi dan izin yang diminta.
-2.  **Signatures** – Kecocokan dengan fingerprint ad SDK atau pola adware.
-3.  **Components** – Deteksi layanan atau receiver tersembunyi yang berjalan di latar belakang.
-
-Setiap aplikasi diberikan skor risiko internal (**ZeroScore**) untuk membantu pengambilan keputusan pengguna.
-
----
-
-### Network Shield
-ZeroAd menginisialisasi `VpnService` lokal untuk mencegat permintaan DNS. Domain iklan yang diblokir tidak akan ter-resolve, sehingga konten iklan gagal dimuat tanpa melakukan inspeksi payload jaringan.
-
----
-
 ## ⚠️ Batasan Teknis
 ZeroAd beroperasi tanpa akses root dan sepenuhnya mematuhi kebijakan keamanan Android:
-*   Tidak dapat menghapus aplikasi sistem.
+*   Tidak dapat menghapus aplikasi sistem secara otomatis (memerlukan persetujuan pengguna melalui dialog sistem).
 *   Tidak memodifikasi partisi `/system` atau `/vendor`.
-*   Tidak melakukan packet inspection selain filtering DNS.
-
-Pendekatan ini dipilih untuk menjaga keamanan, stabilitas, dan kepatuhan terhadap kebijakan Play Store.
+*   Penyaringan DNS tidak dapat memblokir iklan yang dikirimkan melalui domain yang sama dengan konten utama (misalnya iklan YouTube yang terintegrasi di dalam aliran video).
 
 ---
 
 ## 🔐 Keamanan & Privasi
-*   ZeroAd tidak mengumpulkan data pribadi.
-*   Tidak menggunakan analytics pihak ketiga.
-*   Semua proses pemindaian dilakukan secara lokal.
-*   Tidak ada data yang dikirim ke server eksternal.
+*   **Pemrosesan Lokal:** Semua analisis aplikasi dilakukan di dalam perangkat Anda.
+*   **Tanpa Analytics:** ZeroAd tidak menggunakan pelacak pihak ketiga seperti Firebase Analytics atau Facebook SDK.
+*   **Privasi Jaringan:** ZeroAd tidak melihat atau menyimpan riwayat browsing Anda.
 
 ---
 
