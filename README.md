@@ -1,126 +1,148 @@
 <div align="center">
 
-  <img src="zeroad.png" alt="ZeroAd Logo" width="140" height="140">
+<img src="zeroad.png" alt="ZeroAd Logo" width="140" height="140" />
 
-  # ZeroAd
-  **Pemindai Adware & Perisai Jaringan Android yang Tangguh**
+# ZeroAd
 
-  [![Flutter](https://img.shields.io/badge/Flutter-3.0%2B-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev/)
-  [![Kotlin](https://img.shields.io/badge/Kotlin-1.9-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org/)
-  [![Platform](https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://www.android.com/)
-  [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+**Android Adware Detection & DNS-Based Ad Blocking**
 
-  <p align="center">
-    <b>ZeroAd</b> adalah alat keamanan ganda yang dirancang untuk membebaskan perangkat Android Anda dari iklan invasif dan aplikasi berbahaya. Menggabungkan <b>pemindaian heuristik</b> canggih dengan <b>Perisai Jaringan DNS</b> sistem-luas.
-  </p>
+<p align="center">
+<b>ZeroAd</b> adalah aplikasi keamanan Android yang berfokus pada deteksi adware dan pemblokiran iklan berbasis DNS. Dibangun dengan arsitektur ringan dan pendekatan non-invasif, ZeroAd bekerja sepenuhnya tanpa akses root dan mematuhi batasan keamanan sistem Android.
+</p>
 
-  [Laporkan Bug](https://github.com/initHD3v/ZeroAd/issues) • [Ajukan Fitur](https://github.com/initHD3v/ZeroAd/issues)
+[Laporkan Bug](https://github.com/initHD3v/ZeroAd/issues) · [Ajukan Fitur](https://github.com/initHD3v/ZeroAd/issues)
 
 </div>
 
 ---
 
-## 🔥 Fitur Ungkapan
+## ✨ Fitur Utama
 
-ZeroAd beroperasi dengan filosofi "Cari & Musnahkan" yang digabungkan dengan perlindungan aktif.
+ZeroAd dirancang untuk memberikan perlindungan praktis terhadap adware dan iklan invasif tanpa membebani sistem.
 
-### 1. 🛡️ Pemindai Adware (Cari & Musnahkan)
-Mendeteksi aplikasi terinstal yang menyalahgunakan izin sistem atau mengandung tanda-tanda adware yang dikenal.
-- **Analisis Heuristik:** Mengidentifikasi perilaku mencurigakan (misal: overlay tersembunyi, penyalahgunaan Layanan Aksesibilitas).
-- **Deteksi Signature:** Memindai SDK Iklan yang dikenal (Unity Ads, AdMob, IronSource) yang tertanam di dalam aplikasi.
-- **Kategorisasi Risiko:** Mengelompokkan ancaman secara otomatis ke dalam **Critical**, **Warning**, dan **Low Priority**.
-- **Tindakan Langsung:** Hapus instalan aplikasi berbahaya langsung dari dashboard.
+### 🛡️ Adware Detection Engine
+Mesin deteksi adware berbasis heuristik dan signature yang menganalisis aplikasi terinstal secara lokal.
+*   **Analisis Heuristik**
+    Mengidentifikasi pola perilaku mencurigakan seperti penyalahgunaan overlay, izin tidak relevan, dan layanan latar belakang tersembunyi.
+*   **Signature Detection**
+    Mendeteksi SDK iklan umum (misalnya AdMob, Unity Ads, IronSource) berdasarkan fingerprint library.
+*   **Risk Classification**
+    Setiap aplikasi diberi tingkat risiko: **Critical**, **Warning**, atau **Low** berdasarkan hasil analisis.
+*   **Guided Mitigation**
+    Menyediakan rekomendasi tindakan seperti peninjauan izin atau penghapusan aplikasi melalui mekanisme sistem Android.
 
-### 2. ⚡ Perisai Jaringan (Perlindungan Aktif)
-Layanan VPN lokal yang kuat untuk memfilter lalu lintas internet dan memblokir iklan sebelum dimuat.
-- **AdBlock Seluruh Sistem:** Memblokir iklan di browser, game, dan aplikasi.
-- **Integrasi DNS AdGuard:** Menggunakan penyaringan DNS standar industri (`94.140.14.14`) untuk keandalan maksimum.
-- **Hemat Baterai:** Menggunakan antarmuka VPN asli Android tanpa pemrosesan latar belakang yang berat.
-- **Privasi Utama:** Lalu lintas difilter secara lokal melalui DNS; tidak ada data yang dicatat atau dikirim ke server eksternal.
+---
+
+## ⚡ Network Shield (DNS Filtering)
+Perlindungan aktif berbasis jaringan menggunakan layanan VPN lokal Android.
+*   **System-wide DNS Filtering**
+    Memblokir resolusi domain iklan dan pelacak pada tingkat DNS.
+*   **AdGuard DNS Integration**
+    Menggunakan resolver DNS publik AdGuard (`94.140.14.14`) untuk stabilitas dan efektivitas.
+*   **Battery Efficient**
+    Mengandalkan `VpnService` Android tanpa inspeksi paket atau pemrosesan berat di latar belakang.
+*   **Privacy First**
+    Tidak ada lalu lintas yang dialihkan ke server ZeroAd dan tidak ada pencatatan aktivitas pengguna.
 
 ---
 
 ## 📸 Antarmuka Aplikasi
 
-| **Dashboard (Scanner)** | **Perisai Jaringan** | **Detail Ancaman** |
-|:---:|:---:|:---:|
-| <img src="https://via.placeholder.com/300x600?text=Scanner+UI" alt="Scanner UI" width="200"> | <img src="https://via.placeholder.com/300x600?text=Shield+UI" alt="Shield UI" width="200"> | <img src="https://via.placeholder.com/300x600?text=Details+UI" alt="Details UI" width="200"> |
+| Dashboard | Network Shield | Threat Details |
+| :---: | :---: | :---: |
+| <img src="https://via.placeholder.com/300x600?text=Dashboard" width="200"> | <img src="https://via.placeholder.com/300x600?text=Shield" width="200"> | <img src="https://via.placeholder.com/300x600?text=Details" width="200"> |
 
-> *Catatan: Cuplikan layar akan diperbarui dengan UI Material 3 Dark Mode terbaru.*
+*Catatan: Tangkapan layar akan diperbarui mengikuti implementasi Material 3 Dark Mode.*
 
 ---
 
-## 🛠️ Teknologi yang Digunakan
+## 🛠️ Teknologi
 
-ZeroAd dibangun dengan arsitektur hibrida untuk memastikan performa tinggi dan integrasi sistem yang mendalam.
+ZeroAd menggunakan arsitektur hibrida untuk menyeimbangkan performa, fleksibilitas, dan akses sistem.
 
-| Komponen | Teknologi | Deskripsi |
+| Layer | Teknologi | Keterangan |
 | :--- | :--- | :--- |
-| **Frontend** | ![Flutter](https://img.shields.io/badge/-Flutter-02569B?logo=flutter&logoColor=white) | **Dart**. Desain Material 3, Animasi Kustom, Navigasi Bawah. |
-| **Backend** | ![Kotlin](https://img.shields.io/badge/-Kotlin-7F52FF?logo=kotlin&logoColor=white) | **Android Native**. Implementasi `VpnService`, heuristik `PackageManager`, Coroutines untuk IO Async. |
-| **Bridge** | **MethodChannel** | Komunikasi performa tinggi antara UI Dart dan logika Native Kotlin. |
-| **Penyimpanan** | **SharedPreferences** | Manajemen status persisten untuk Whitelist dan Pengaturan. |
+| **UI** | Flutter (Dart) | Material 3, animasi ringan, state management sederhana |
+| **Core** | Kotlin (Android Native) | Package analysis, VpnService, coroutine-based async |
+| **Bridge** | MethodChannel | Komunikasi efisien Flutter ↔ Native |
+| **Storage** | SharedPreferences | Penyimpanan konfigurasi & whitelist |
 
 ---
 
 ## 🚀 Memulai
 
 ### Prasyarat
-- Flutter SDK (3.0 atau lebih tinggi)
-- Android SDK (API 21+)
-- Perangkat Android fisik (disarankan untuk pengujian VPN) atau Emulator.
+*   Flutter SDK 3.0+
+*   Android SDK (API 21+)
+*   Perangkat Android fisik (disarankan untuk pengujian VPN)
 
 ### Instalasi
-
-1. **Clone repositori**
-   ```bash
-   git clone https://github.com/initHD3v/ZeroAd.git
-   cd zeroad
-   ```
-
-2. **Instal Dependensi**
-   ```bash
-   flutter pub get
-   ```
-
-3. **Jalankan Aplikasi**
-   ```bash
-   flutter run
-   ```
+1.  **Clone repositori**
+    ```bash
+    git clone https://github.com/initHD3v/ZeroAd.git
+    cd ZeroAd
+    ```
+2.  **Instal dependensi**
+    ```bash
+    flutter pub get
+    ```
+3.  **Jalankan aplikasi**
+    ```bash
+    flutter run
+    ```
 
 ---
 
 ## ⚙️ Cara Kerja
 
-### Mesin Pemindai
-Pemindai melakukan iterasi melalui `PackageManager.getInstalledApplications`. Ia menetapkan "ZeroScore" untuk setiap aplikasi berdasarkan:
-1.  **Izin:** Apakah aplikasi kalkulator membutuhkan `CAMERA` atau `SYSTEM_ALERT_WINDOW`?
-2.  **Signature:** Apakah nama paket cocok dengan keluarga adware yang dikenal?
-3.  **Komponen:** Apakah memiliki layanan latar belakang tersembunyi (`AdService`)?
+### Adware Scanner
+ZeroAd memindai aplikasi menggunakan `PackageManager` dan melakukan analisis read-only berdasarkan:
+1.  **Permissions** – Konsistensi antara fungsi aplikasi dan izin yang diminta.
+2.  **Signatures** – Kecocokan dengan fingerprint ad SDK atau pola adware.
+3.  **Components** – Deteksi layanan atau receiver tersembunyi yang berjalan di latar belakang.
 
-### Perisai VPN
-ZeroAd membuat antarmuka `VpnService` lokal. Alih-alih merutekan lalu lintas melalui server jarak jauh, ia mencegat paket DNS dan memaksanya melalui **AdGuard DNS**. Ini mencegah domain iklan untuk terurai (resolve), secara efektif mematikan permintaan iklan di tingkat jaringan.
+Setiap aplikasi diberikan skor risiko internal (**ZeroScore**) untuk membantu pengambilan keputusan pengguna.
+
+---
+
+### Network Shield
+ZeroAd menginisialisasi `VpnService` lokal untuk mencegat permintaan DNS. Domain iklan yang diblokir tidak akan ter-resolve, sehingga konten iklan gagal dimuat tanpa melakukan inspeksi payload jaringan.
+
+---
+
+## ⚠️ Batasan Teknis
+ZeroAd beroperasi tanpa akses root dan sepenuhnya mematuhi kebijakan keamanan Android:
+*   Tidak dapat menghapus aplikasi sistem.
+*   Tidak memodifikasi partisi `/system` atau `/vendor`.
+*   Tidak melakukan packet inspection selain filtering DNS.
+
+Pendekatan ini dipilih untuk menjaga keamanan, stabilitas, dan kepatuhan terhadap kebijakan Play Store.
+
+---
+
+## 🔐 Keamanan & Privasi
+*   ZeroAd tidak mengumpulkan data pribadi.
+*   Tidak menggunakan analytics pihak ketiga.
+*   Semua proses pemindaian dilakukan secara lokal.
+*   Tidak ada data yang dikirim ke server eksternal.
 
 ---
 
 ## 🤝 Kontribusi
-
-Kontribusi adalah hal yang membuat komunitas sumber terbuka menjadi tempat yang luar biasa untuk belajar, menginspirasi, dan berkreasi. Setiap kontribusi yang Anda berikan **sangat dihargai**.
-
-1. Fork Proyek ini
-2. Buat Branch Fitur Anda (`git checkout -b feature/FiturLuarBiasa`)
-3. Commit Perubahan Anda (`git commit -m 'Menambahkan Fitur Luar Biasa'`)
-4. Push ke Branch tersebut (`git push origin feature/FiturLuarBiasa`)
-5. Buka Pull Request
+Kontribusi selalu terbuka.
+1.  Fork repositori ini
+2.  Buat branch fitur (`feature/nama-fitur`)
+3.  Commit perubahan Anda
+4.  Push ke branch tersebut
+5.  Ajukan Pull Request
 
 ---
 
 ## 📝 Lisensi
-
-Didistribusikan di bawah Lisensi MIT. Lihat `LICENSE` untuk informasi lebih lanjut.
+Proyek ini dirilis di bawah Lisensi MIT. Lihat file `LICENSE` untuk detail lengkap.
 
 ---
 
 <div align="center">
-  <p>Dibuat dengan ❤️ oleh <a href="https://github.com/initHD3v">initHD3v</a></p>
+Dikembangkan dengan fokus pada efisiensi dan kejelasan oleh <a href="https://github.com/initHD3v">initHD3v</a>
 </div>
