@@ -20,30 +20,28 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.app.Activity
 
-// Data class to hold information about a specific threat
 @Serializable
 data class Threat(
-    val type: String, // e.g., "PERMISSION_ABUSE", "AD_SDK", "BEHAVIORAL"
-    val severity: String, // e.g., "HIGH", "MEDIUM", "LOW"
+    val type: String, 
+    val severity: String,
+    val code: String, // New field for localization and detailed mapping
     val description: String
 )
 
-// Data class to hold information about detected threats in an app
 @Serializable
 data class AppThreatInfo(
     val packageName: String,
     val appName: String,
     val isSystemApp: Boolean,
-    val detectedThreats: List<Threat>, // Now a list of Threat objects
-    val zeroScore: Int = 0 // Overall threat score for the app
+    val detectedThreats: List<Threat>,
+    val zeroScore: Int = 0
 )
 
-// Data class to hold the overall scan result, serializable
 @Serializable
 data class ScanResultKotlin(
     val totalInstalledPackages: Int,
     val suspiciousPackagesCount: Int,
-    val threats: List<AppThreatInfo> // This will now directly be a List<AppThreatInfo>
+    val threats: List<AppThreatInfo>
 )
 
 class MainActivity : FlutterActivity() {
@@ -57,171 +55,94 @@ class MainActivity : FlutterActivity() {
             call, result ->
             when (call.method) {
                 "scan" -> {
-                    // Launch a coroutine in the IO dispatcher for background processing
                     CoroutineScope(Dispatchers.IO).launch {
                         val packageManager: PackageManager = applicationContext.packageManager
                         val installedApps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
                         val threatsDetected = mutableListOf<AppThreatInfo>()
-
                         var suspiciousCount = 0
 
                         for (appInfo in installedApps) {
                             val detectedThreatsForApp = mutableListOf<Threat>()
-                            var appZeroScore = 0 // Initialize zeroScore for this app
-
+                            var appZeroScore = 0
                             val appName = packageManager.getApplicationLabel(appInfo).toString()
                             val isSystemApp = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
 
-                            // Helper for scoring severity
-                            fun getSeverityScore(severity: String): Int {
-                                return when (severity) {
-                                    "HIGH" -> 30
-                                    "MEDIUM" -> 15
-                                    "LOW" -> 5
-                                    else -> 0
-                                }
+                            fun getSeverityScore(severity: String): Int = when (severity) {
+                                "HIGH" -> 30
+                                "MEDIUM" -> 15
+                                "LOW" -> 5
+                                else -> 0
                             }
 
-                            // 1. Permission Analysis (Heuristic tuning & Contextual Analysis)
+                            // --- ADVANCED HEURISTICS (Deep Scan) ---
                             try {
-                                val packageInfo = packageManager.getPackageInfo(appInfo.packageName, PackageManager.GET_PERMISSIONS or PackageManager.GET_SERVICES or PackageManager.GET_RECEIVERS)
-                                val permissions = packageInfo.requestedPermissions
-                                if (permissions != null) {
-                                    if (permissions.contains("android.permission.BIND_ACCESSIBILITY_SERVICE")) {
-                                        val threat = Threat(
-                                            type = "PERMISSION_ABUSE",
-                                            severity = "HIGH",
-                                            description = "App requests BIND_ACCESSIBILITY_SERVICE which can be abused for malicious activities."
-                                        )
-                                        detectedThreatsForApp.add(threat)
-                                        appZeroScore += getSeverityScore(threat.severity)
-                                    }
-                                    if (permissions.contains("android.permission.SYSTEM_ALERT_WINDOW")) {
-                                        val threat = Threat(
-                                            type = "PERMISSION_ABUSE",
-                                            severity = "MEDIUM",
-                                            description = "App can draw over other apps (SYSTEM_ALERT_WINDOW), often used for deceptive overlays."
-                                        )
-                                        detectedThreatsForApp.add(threat)
-                                        appZeroScore += getSeverityScore(threat.severity)
-                                    }
-                                    
-                                    // Contextual Permission Analysis (Placeholder)
-                                    // Example: A calculator app asking for contacts or camera
-                                    if (appName.contains("Calculator", ignoreCase = true) && (permissions.contains("android.permission.READ_CONTACTS") || permissions.contains("android.permission.CAMERA"))) {
-                                        val threat = Threat(
-                                            type = "PERMISSION_ABUSE",
-                                            severity = "HIGH",
-                                            description = "Calculator app requesting irrelevant permissions (Contacts/Camera)."
-                                        )
-                                        detectedThreatsForApp.add(threat)
-                                        appZeroScore += getSeverityScore(threat.severity)
-                                    }
-                                    // Add more contextual checks here
-                                }
-                            } catch (e: PackageManager.NameNotFoundException) {
-                                println("Package info not found for ${appInfo.packageName}")
-                            }
+                                val packageInfo = packageManager.getPackageInfo(appInfo.packageName, PackageManager.GET_PERMISSIONS)
+                                val permissions = packageInfo.requestedPermissions?.toList() ?: listOf()
 
-                            // 2. Ad SDK Fingerprinting (Signature Detection) - Simulated Database Check
-                            val knownAdSdkSignatures = listOf(
-                                "com.google.android.gms.ads", // Google Mobile Ads
-                                "com.facebook.ads",            // Facebook Audience Network
-                                "com.applovin.sdk",            // AppLovin
-                                "com.unity3d.ads",             // Unity Ads
-                                "io.presage.adn",              // Presage SDK
-                                "com.adcolony",                // AdColony
-                                "com.ironsource",              // IronSource
-                                // ... extend with more known ad SDKs
+                                // 1. Stealth Installer Check
+                                if (permissions.contains("android.permission.REQUEST_INSTALL_PACKAGES") && !isSystemApp) {
+                                    val threat = Threat("SYSTEM_CONTROL", "HIGH", "STEALTH_INSTALLER", 
+                                        "App can install other applications without direct Play Store involvement.")
+                                    detectedThreatsForApp.add(threat)
+                                    appZeroScore += getSeverityScore(threat.severity)
+                                }
+
+                                // 2. Boot Overlay Combo (Aggressive Adware Pattern)
+                                if (permissions.contains("android.permission.RECEIVE_BOOT_COMPLETED") && 
+                                    permissions.contains("android.permission.SYSTEM_ALERT_WINDOW")) {
+                                    val threat = Threat("BEHAVIORAL", "HIGH", "BOOT_OVERLAY", 
+                                        "App starts at boot and can draw over other apps. Highly typical of intrusive adware.")
+                                    detectedThreatsForApp.add(threat)
+                                    appZeroScore += getSeverityScore(threat.severity)
+                                }
+
+                                // 3. Privacy Miner (Contextual)
+                                if (appName.contains("Editor", ignoreCase = true) || appName.contains("Flashlight", ignoreCase = true)) {
+                                    if (permissions.contains("android.permission.READ_SMS") || permissions.contains("android.permission.READ_CALL_LOG")) {
+                                        val threat = Threat("PRIVACY", "HIGH", "PRIVACY_MINER", 
+                                            "Utility app requesting sensitive personal data (SMS/Logs) unrelated to its function.")
+                                        detectedThreatsForApp.add(threat)
+                                        appZeroScore += getSeverityScore(threat.severity)
+                                    }
+                                }
+
+                                // 4. Basic Accessibility Abuse
+                                if (permissions.contains("android.permission.BIND_ACCESSIBILITY_SERVICE")) {
+                                    val threat = Threat("PERMISSION_ABUSE", "HIGH", "ACCESSIBILITY_ABUSE", "Requests full screen reading & control.")
+                                    detectedThreatsForApp.add(threat)
+                                    appZeroScore += getSeverityScore(threat.severity)
+                                }
+
+                            } catch (e: Exception) {}
+
+                            // --- EXPANDED SIGNATURE SCAN ---
+                            val adSdkPatterns = mapOf(
+                                "com.applovin" to "AD_SDK_APPLOVIN",
+                                "com.mbridge.msdk" to "AD_SDK_MINTEGRAL",
+                                "com.vungle.warren" to "AD_SDK_VUNGLE",
+                                "com.ironsource" to "AD_SDK_IRONSOURCE",
+                                "com.unity3d.ads" to "AD_SDK_UNITY",
+                                "com.google.android.gms.ads" to "AD_SDK_ADMOB"
                             )
-                            // Check if package name contains any known ad SDK signature
-                            if (knownAdSdkSignatures.any { appInfo.packageName.contains(it, ignoreCase = true) }) {
-                                val threat = Threat(
-                                    type = "AD_SDK",
-                                    severity = "MEDIUM", // Elevated to Medium for known SDKs
-                                    description = "Contains known ad SDK package name: ${appInfo.packageName.substringAfterLast('.')}"
-                                )
-                                detectedThreatsForApp.add(threat)
-                                appZeroScore += getSeverityScore(threat.severity)
-                            } else if (appInfo.packageName.contains("ad.sdk", ignoreCase = true) || appName.contains("adware", ignoreCase = true)) {
-                                val threat = Threat(
-                                    type = "AD_SDK",
-                                    severity = "LOW",
-                                    description = "Package name or app name suggests presence of ad SDK."
-                                )
-                                detectedThreatsForApp.add(threat)
-                                appZeroScore += getSeverityScore(threat.severity)
+
+                            for ((pattern, code) in adSdkPatterns) {
+                                if (appInfo.packageName.contains(pattern, ignoreCase = true)) {
+                                    val threat = Threat("AD_SDK", "MEDIUM", code, "Contains integrated advertisement delivery framework.")
+                                    detectedThreatsForApp.add(threat)
+                                    appZeroScore += getSeverityScore(threat.severity)
+                                    break // One SDK tag per app is enough for scanning
+                                }
                             }
 
-
-                            // 3. Behavioral Heuristics (Abuse Detection) - Services/Receivers
-                            try {
-                                val packageInfo = packageManager.getPackageInfo(appInfo.packageName, PackageManager.GET_SERVICES or PackageManager.GET_RECEIVERS)
-                                val services = packageInfo.services
-                                val receivers = packageInfo.receivers
-
-                                // Check for services that run constantly without apparent user interaction in non-system apps
-                                if (!isSystemApp && services != null && services.any { it.name.contains("AdService", ignoreCase = true) || it.name.contains("TrackingService", ignoreCase = true) }) {
-                                    val threat = Threat(
-                                        type = "BEHAVIORAL",
-                                        severity = "MEDIUM",
-                                        description = "Non-system app declares suspicious background service (AdService/TrackingService)."
-                                    )
-                                    detectedThreatsForApp.add(threat)
-                                    appZeroScore += getSeverityScore(threat.severity)
-                                }
-
-                                // Check for receivers that listen to broad/suspicious intents (e.g., BOOT_COMPLETED) in non-system apps
-                                if (!isSystemApp && receivers != null && receivers.any { it.name.contains("BootReceiver", ignoreCase = true) && it.enabled }) {
-                                    val threat = Threat(
-                                        type = "BEHAVIORAL",
-                                        severity = "MEDIUM",
-                                        description = "Non-system app declares a boot receiver, potentially auto-starting."
-                                    )
-                                    detectedThreatsForApp.add(threat)
-                                    appZeroScore += getSeverityScore(threat.severity)
-                                }
-
-                                if (appInfo.packageName.contains("launcher", ignoreCase = true) && !isSystemApp) {
-                                    val threat = Threat(
-                                        type = "BEHAVIORAL",
-                                        severity = "MEDIUM",
-                                        description = "Non-system app with 'launcher' in package name detected, potentially a hidden launcher."
-                                    )
-                                    detectedThreatsForApp.add(threat)
-                                    appZeroScore += getSeverityScore(threat.severity)
-                                }
-
-
-                            } catch (e: PackageManager.NameNotFoundException) {
-                                println("Package info (services/receivers) not found for ${appInfo.packageName}")
-                            }
-
-
-                            // Add to threatsDetected list only if issues were found
                             if (detectedThreatsForApp.isNotEmpty()) {
-                                threatsDetected.add(AppThreatInfo(
-                                    packageName = appInfo.packageName,
-                                    appName = appName,
-                                    isSystemApp = isSystemApp,
-                                    detectedThreats = detectedThreatsForApp,
-                                    zeroScore = appZeroScore // Include the calculated zeroScore
-                                ))
-                                // Increment overall suspicious count only if the app's zeroScore is above a threshold
-                                if (appZeroScore >= getSeverityScore("MEDIUM")) { // Example threshold
-                                    suspiciousCount++
-                                }
+                                threatsDetected.add(AppThreatInfo(appInfo.packageName, appName, isSystemApp, detectedThreatsForApp, appZeroScore))
+                                if (appZeroScore >= 15) suspiciousCount++
                             }
                         }
 
-                        // Switch back to Main thread to send result
                         withContext(Dispatchers.Main) {
-                            val scanResultKotlin = ScanResultKotlin(
-                                totalInstalledPackages = installedApps.size,
-                                suspiciousPackagesCount = suspiciousCount,
-                                threats = threatsDetected // Directly use the list of threats
-                            )
-                            result.success(Json.encodeToString(scanResultKotlin)) // Return the entire ScanResultKotlin object as a JSON string
+                            val scanResultKotlin = ScanResultKotlin(installedApps.size, suspiciousCount, threatsDetected)
+                            result.success(Json.encodeToString(scanResultKotlin))
                         }
                     }
                 }
@@ -229,13 +150,10 @@ class MainActivity : FlutterActivity() {
                 "uninstallApp" -> {
                     val packageName = call.argument<String>("packageName")
                     if (packageName != null) {
-                        val intent = Intent(Intent.ACTION_DELETE)
-                        intent.data = Uri.parse("package:$packageName")
+                        val intent = Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName"))
                         startActivity(intent)
-                        result.success(true) // Indicate that the intent was launched
-                    } else {
-                        result.error("INVALID_ARGUMENT", "Package name cannot be null", null)
-                    }
+                        result.success(true)
+                    } else result.error("ERROR", "Null package", null)
                 }
 
                 "startAdBlock" -> {
@@ -244,39 +162,35 @@ class MainActivity : FlutterActivity() {
                         pendingResult = result
                         startActivityForResult(intent, VPN_REQUEST_CODE)
                     } else {
-                        onActivityResult(VPN_REQUEST_CODE, Activity.RESULT_OK, null)
+                        startVpnService()
                         result.success(true)
                     }
                 }
 
                 "stopAdBlock" -> {
-                    val intent = Intent(this, AdBlockVpnService::class.java)
-                    intent.action = AdBlockVpnService.ACTION_STOP
+                    val intent = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_STOP }
                     startService(intent)
-                    result.success(false) // Returns false to indicate inactive
+                    result.success(false)
                 }
 
-                "getVpnLogs" -> {
-                    val logs = AdBlockVpnService.getLogs()
-                    result.success(logs)
-                }
-                
+                "getVpnLogs" -> result.success(AdBlockVpnService.getLogs())
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun startVpnService() {
+        val intent = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_START }
+        startService(intent)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE) {
             if (resultCode == Activity.RESULT_OK) {
-                val intent = Intent(this, AdBlockVpnService::class.java)
-                intent.action = AdBlockVpnService.ACTION_START
-                startService(intent)
+                startVpnService()
                 pendingResult?.success(true)
-            } else {
-                pendingResult?.error("VPN_REJECTED", "User rejected VPN permission", null)
-            }
+            } else pendingResult?.error("REJECTED", "VPN Rejected", null)
             pendingResult = null
         }
     }

@@ -6,11 +6,13 @@ part 'models.g.dart'; // This line is for code generation
 class Threat {
   final String type;
   final String severity;
+  final String code; // Unique code for mapping to detailed info
   final String description;
 
   Threat({
     required this.type,
     required this.severity,
+    required this.code,
     required this.description,
   });
 

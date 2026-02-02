@@ -9,12 +9,14 @@ part of 'models.dart';
 Threat _$ThreatFromJson(Map<String, dynamic> json) => Threat(
   type: json['type'] as String,
   severity: json['severity'] as String,
+  code: json['code'] as String,
   description: json['description'] as String,
 );
 
 Map<String, dynamic> _$ThreatToJson(Threat instance) => <String, dynamic>{
   'type': instance.type,
   'severity': instance.severity,
+  'code': instance.code,
   'description': instance.description,
 };
 
