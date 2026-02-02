@@ -302,8 +302,11 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Widget _buildThreatItem(AppThreatInfo appThreatInfo, BuildContext context) {
     String highestSeverity = 'LOW';
-    if (appThreatInfo.detectedThreats.any((t) => t.severity == 'HIGH')) highestSeverity = 'HIGH';
-    else if (appThreatInfo.detectedThreats.any((t) => t.severity == 'MEDIUM')) highestSeverity = 'MEDIUM';
+    if (appThreatInfo.detectedThreats.any((t) => t.severity == 'HIGH')) {
+      highestSeverity = 'HIGH';
+    } else if (appThreatInfo.detectedThreats.any((t) => t.severity == 'MEDIUM')) {
+      highestSeverity = 'MEDIUM';
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12.0, left: 8, right: 8),

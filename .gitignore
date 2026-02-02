@@ -33,8 +33,10 @@ migrate_working_dir/
 /build/
 /coverage/
 
-# Symbolication related
-app.*.symbols
+# Keystore and signing files
+*.jks
+*.keystore
+android/key.properties
 
 # Obfuscation related
 app.*.map.json
