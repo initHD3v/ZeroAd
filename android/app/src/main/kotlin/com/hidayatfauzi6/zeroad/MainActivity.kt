@@ -255,6 +255,11 @@ class MainActivity : FlutterActivity() {
                     startService(intent)
                     result.success(false) // Returns false to indicate inactive
                 }
+
+                "getVpnLogs" -> {
+                    val logs = AdBlockVpnService.getLogs()
+                    result.success(logs)
+                }
                 
                 else -> result.notImplemented()
             }

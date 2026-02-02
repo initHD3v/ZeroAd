@@ -1,0 +1,51 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "org.jetbrains.kotlin.plugin.serialization" version "1.9.0"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+android {
+    namespace "com.hidayatfauzi6.zeroad"
+    compileSdk 36
+    ndkVersion flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = '11'
+    }
+
+    defaultConfig {
+        applicationId "com.hidayatfauzi6.zeroad"
+        minSdkVersion 26 // Android 8.0+, lebih disukai oleh sistem modern
+        targetSdkVersion 35
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+        
+        // Memastikan library 64-bit disertakan dengan benar
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.debug // Menggunakan debug key agar bisa diinstal manual
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+}
+
+flutter {
+    source "../.."
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+}

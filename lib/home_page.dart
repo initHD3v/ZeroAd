@@ -1,4 +1,5 @@
 import 'dart:convert'; // Import for JSON decoding
+import 'dart:async'; // Import for Timer
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // Import for MethodChannel
 import 'package:google_fonts/google_fonts.dart'; // Import for Google Fonts
@@ -19,7 +20,7 @@ class _MyHomePageState extends State<MyHomePage> {
   static const MethodChannel _platform = MethodChannel('zeroad.security/scanner');
   
   // -- Navigation State --
-  int _currentIndex = 0; // 0 = Scanner, 1 = Shield
+  int _currentIndex = 1; // Default to Shield (middle tab)
 
   // -- Scanner State --
   final ValueNotifier<bool> _isScanning = ValueNotifier<bool>(false);
@@ -28,12 +29,53 @@ class _MyHomePageState extends State<MyHomePage> {
 
   // -- AdBlock State --
   bool _isAdBlockActive = false;
+  List<String> _vpnLogs = []; // List to store activity logs
+  Timer? _logTimer; // Correct Dart Timer class
 
   @override
   void initState() {
     super.initState();
     _loadAdBlockStatus();
     _scanForAdware(); // Initial scan on startup
+    _startLogSync(); // Start syncing logs
+  }
+
+  @override
+  void dispose() {
+    _logTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startLogSync() {
+    // Check for logs every 3 seconds
+    Timer.periodic(const Duration(seconds: 3), (timer) {
+      if (_isAdBlockActive) {
+        _fetchLogs();
+      }
+    });
+  }
+
+  Future<void> _fetchLogs() async {
+    try {
+      final List<dynamic> newLogs = await _platform.invokeMethod('getVpnLogs');
+      if (newLogs.isNotEmpty && mounted) {
+        setState(() {
+          // Add new logs to the top
+          _vpnLogs = [...newLogs.map((e) => e.toString()), ..._vpnLogs];
+          if (_vpnLogs.length > 100) { // Limit history to 100 entries
+            _vpnLogs = _vpnLogs.sublist(0, 100);
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching logs: $e");
+    }
+  }
+
+  void _clearLogs() {
+    setState(() {
+      _vpnLogs.clear();
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -340,7 +382,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   // ---------------------------------------------------------------------------
-  // VIEW 2: AdBlock Shield
+  // VIEW 2: AdBlock Shield (Main Controller)
   // ---------------------------------------------------------------------------
   Widget _buildShieldView() {
     final colorScheme = Theme.of(context).colorScheme;
@@ -354,8 +396,8 @@ class _MyHomePageState extends State<MyHomePage> {
           // Visual Shield
           AnimatedContainer(
             duration: const Duration(milliseconds: 500),
-            height: 200,
-            width: 200,
+            height: 240,
+            width: 240,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _isAdBlockActive ? activeColor.withAlpha(30) : inactiveColor.withAlpha(30),
@@ -364,53 +406,168 @@ class _MyHomePageState extends State<MyHomePage> {
                 width: 4,
               ),
               boxShadow: _isAdBlockActive ? [
-                BoxShadow(color: activeColor.withAlpha(100), blurRadius: 30, spreadRadius: 5)
+                BoxShadow(color: activeColor.withAlpha(100), blurRadius: 40, spreadRadius: 10)
               ] : [],
             ),
-            child: Icon(
-              Icons.shield_rounded,
-              size: 100,
-              color: _isAdBlockActive ? activeColor : inactiveColor,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  _isAdBlockActive ? Icons.verified_user_rounded : Icons.shield_rounded,
+                  size: 80,
+                  color: _isAdBlockActive ? activeColor : inactiveColor,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _isAdBlockActive ? "ACTIVE" : "OFF",
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 2,
+                    color: _isAdBlockActive ? activeColor : inactiveColor,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 40),
+          const SizedBox(height: 60),
           
           Text(
-            _isAdBlockActive ? "Protection Active" : "Protection Disabled",
+            _isAdBlockActive ? "Your Network is Protected" : "Network Shield is Disabled",
+            textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
-              fontSize: 24,
+              fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: _isAdBlockActive ? activeColor : colorScheme.onSurface,
+              color: colorScheme.onSurface,
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            _isAdBlockActive 
-                ? "AdGuard DNS is filtering ads." 
-                : "Enable to block ads across apps.",
-            style: GoogleFonts.poppins(color: colorScheme.onSurfaceVariant),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Text(
+              _isAdBlockActive 
+                  ? "AdGuard DNS is actively filtering trackers and intrusive advertisements." 
+                  : "Enable the shield to block ads across all your applications and browsers.",
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(color: colorScheme.onSurfaceVariant, fontSize: 14),
+            ),
           ),
           
           const SizedBox(height: 60),
 
           // Big Toggle Button
           SizedBox(
-            width: 200,
-            height: 60,
+            width: 220,
+            height: 64,
             child: ElevatedButton.icon(
               onPressed: _toggleAdBlock,
               icon: Icon(_isAdBlockActive ? Icons.power_settings_new : Icons.play_arrow_rounded),
-              label: Text(_isAdBlockActive ? "Turn Off" : "Turn On"),
+              label: Text(_isAdBlockActive ? "DISCONNECT" : "CONNECT"),
               style: ElevatedButton.styleFrom(
                 backgroundColor: _isAdBlockActive ? colorScheme.surfaceContainerHighest : activeColor,
                 foregroundColor: _isAdBlockActive ? colorScheme.onSurface : Colors.black,
-                textStyle: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                textStyle: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+                elevation: _isAdBlockActive ? 0 : 8,
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // VIEW 3: Detailed Activity Log
+  // ---------------------------------------------------------------------------
+  Widget _buildActivityView() {
+    final colorScheme = Theme.of(context).colorScheme;
+    
+    return Column(
+      children: [
+        // Log Header Info
+        Container(
+          padding: const EdgeInsets.all(20),
+          color: colorScheme.surfaceContainer,
+          child: Row(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Blocked Requests",
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
+                  Text(
+                    "Real-time DNS filtering log",
+                    style: GoogleFonts.poppins(fontSize: 12, color: colorScheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              if (_vpnLogs.isNotEmpty)
+                TextButton.icon(
+                  onPressed: _clearLogs,
+                  icon: const Icon(Icons.delete_sweep_outlined, size: 20),
+                  label: Text("Clear", style: GoogleFonts.poppins()),
+                  style: TextButton.styleFrom(foregroundColor: colorScheme.error),
+                ),
+            ],
+          ),
+        ),
+        
+        // Log List
+        Expanded(
+          child: _vpnLogs.isEmpty 
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.history_toggle_off_rounded, size: 64, color: colorScheme.onSurfaceVariant.withAlpha(50)),
+                    const SizedBox(height: 16),
+                    Text(
+                      _isAdBlockActive ? "No traffic detected yet..." : "Shield is inactive",
+                      style: GoogleFonts.poppins(color: colorScheme.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: _vpnLogs.length,
+                separatorBuilder: (context, index) => const Divider(height: 1, indent: 70),
+                itemBuilder: (context, index) {
+                  final parts = _vpnLogs[index].split('|');
+                  final time = DateTime.fromMillisecondsSinceEpoch(int.tryParse(parts[0]) ?? 0);
+                  final domain = parts.length > 1 ? parts[1] : "Unknown Domain";
+                  
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: colorScheme.errorContainer,
+                      child: Icon(Icons.block_flipped, color: colorScheme.error, size: 20),
+                    ),
+                    title: Text(
+                      domain,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Text(
+                      "${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')} • DNS Block",
+                      style: GoogleFonts.poppins(fontSize: 11),
+                    ),
+                    trailing: Text(
+                      "BLOCKED",
+                      style: GoogleFonts.poppins(
+                        fontSize: 10, 
+                        fontWeight: FontWeight.w900, 
+                        color: colorScheme.error
+                      ),
+                    ),
+                  );
+                },
+              ),
+        ),
+      ],
     );
   }
 
@@ -422,7 +579,7 @@ class _MyHomePageState extends State<MyHomePage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _currentIndex == 0 ? "Scanner" : "Network Shield", 
+          _currentIndex == 0 ? "Adware Scanner" : (_currentIndex == 1 ? "Network Shield" : "Live Activity"), 
           style: GoogleFonts.poppins(fontWeight: FontWeight.bold)
         ),
         centerTitle: true,
@@ -435,7 +592,14 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
         ],
       ),
-      body: _currentIndex == 0 ? _buildScannerView() : _buildShieldView(),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          _buildScannerView(),
+          _buildShieldView(),
+          _buildActivityView(),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
@@ -451,6 +615,11 @@ class _MyHomePageState extends State<MyHomePage> {
             icon: Icon(Icons.shield_outlined),
             selectedIcon: Icon(Icons.shield),
             label: 'Shield',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.list_alt_rounded),
+            selectedIcon: Icon(Icons.list_alt_rounded),
+            label: 'Activity',
           ),
         ],
       ),
