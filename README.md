@@ -59,11 +59,30 @@ Pemindaian dilakukan secara asinkron menggunakan **Kotlin Coroutines** agar tida
 
 ## 📸 Antarmuka Aplikasi
 
-| Dashboard | Network Shield | Live Activity |
-| :---: | :---: | :---: |
-| <img src="https://via.placeholder.com/300x600?text=Scanner" width="200"> | <img src="https://via.placeholder.com/300x600?text=Shield" width="200"> | <img src="https://via.placeholder.com/300x600?text=Activity" width="200"> |
-
-*Catatan: Tangkapan layar akan diperbarui mengikuti implementasi Material 3 Dark Mode dan Ikon Resmi.*
+<div align="center">
+  <table style="width:100%">
+    <tr>
+      <td align="center"><b>Scanner</b></td>
+      <td align="center"><b>Shield</b></td>
+      <td align="center"><b>Activity</b></td>
+    </tr>
+    <tr>
+      <td><img src="uix/Screenshot_20260202-191539.png" width="250"></td>
+      <td><img src="uix/Screenshot_20260202-191545.png" width="250"></td>
+      <td><img src="uix/Screenshot_20260202-191550.png" width="250"></td>
+    </tr>
+    <tr>
+      <td align="center"><b>Risk Groups</b></td>
+      <td align="center"><b>Threat Details</b></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td><img src="uix/Screenshot_20260202-191559.png" width="250"></td>
+      <td><img src="uix/Screenshot_20260202-191641.png" width="250"></td>
+      <td></td>
+    </tr>
+  </table>
+</div>
 
 ---
 
