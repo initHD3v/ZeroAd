@@ -69,29 +69,7 @@ ZeroAd menggunakan arsitektur hibrida untuk menyeimbangkan performa, fleksibilit
 
 ---
 
-## 🚀 Memulai
 
-### Prasyarat
-*   Flutter SDK 3.0+
-*   Android SDK (API 21+)
-*   Perangkat Android fisik (disarankan untuk pengujian VPN)
-
-### Instalasi
-1.  **Clone repositori**
-    ```bash
-    git clone https://github.com/initHD3v/ZeroAd.git
-    cd ZeroAd
-    ```
-2.  **Instal dependensi**
-    ```bash
-    flutter pub get
-    ```
-3.  **Jalankan aplikasi**
-    ```bash
-    flutter run
-    ```
-
----
 
 ## ⚙️ Cara Kerja
 
