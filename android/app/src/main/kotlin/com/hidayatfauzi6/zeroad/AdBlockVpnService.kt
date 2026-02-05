@@ -28,6 +28,7 @@ class AdBlockVpnService : VpnService() {
     private var executor: ExecutorService? = null
     private var isRunning = false
     private var whitelistedApps: MutableSet<String> = mutableSetOf()
+    private val blockedDomains = HashSet<String>()
     private lateinit var prefs: SharedPreferences
 
     companion object {
@@ -46,14 +47,11 @@ class AdBlockVpnService : VpnService() {
             }
             return logs
         }
-        
-        private val BLOCKED_KEYWORDS = listOf(
-            "doubleclick.net", "googleadservices.com", "adservice.google.com",
-            "unity3d.com", "unityads", "applovin", "vungle", "ironsrc",
-            "adcolony", "inmobi", "chartboost", "tapjoy", "mopub",
-            "fyber", "startapp", "audience_network", "facebook.com/ad",
-            "crashlytics", "branch.io", "adjust.com", "appsflyer",
-            "ads.google.com", "pagead2.googlesyndication.com"
+
+        private val SYSTEM_WHITELIST = listOf(
+            "google.com", "googleapis.com", "gstatic.com", "googleusercontent.com",
+            "whatsapp.net", "whatsapp.com", "facebook.com", "fbcdn.net",
+            "instagram.com", "android.com", "play.google.com"
         )
     }
 
@@ -61,12 +59,40 @@ class AdBlockVpnService : VpnService() {
         when (intent?.action) {
             ACTION_STOP -> stopVpn()
             ACTION_START -> {
+                if (executor == null) executor = Executors.newFixedThreadPool(10)
                 loadWhitelist()
+                loadBlocklistFromAssets()
                 startVpn()
             }
             ACTION_UPDATE_WHITELIST -> loadWhitelist()
         }
         return START_STICKY
+    }
+
+    private fun loadBlocklistFromAssets() {
+        executor?.execute {
+            try {
+                val newBlockedDomains = HashSet<String>()
+                assets.open("hosts.txt").bufferedReader().useLines { lines ->
+                    lines.forEach { line ->
+                        val trimmed = line.trim()
+                        if (trimmed.isNotEmpty() && !trimmed.startsWith("#")) {
+                            // Support "0.0.0.0 domain.com" or just "domain.com"
+                            val parts = trimmed.split("\\s+".toRegex())
+                            val domain = if (parts.size > 1) parts[1] else parts[0]
+                            newBlockedDomains.add(domain.lowercase())
+                        }
+                    }
+                }
+                synchronized(blockedDomains) {
+                    blockedDomains.clear()
+                    blockedDomains.addAll(newBlockedDomains)
+                }
+                Log.d(TAG, "Loaded ${blockedDomains.size} domains from blocklist")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading blocklist: $e")
+            }
+        }
     }
 
     private fun loadWhitelist() {
@@ -80,7 +106,7 @@ class AdBlockVpnService : VpnService() {
     private fun startVpn() {
         if (isRunning) return
         isRunning = true
-        executor = Executors.newFixedThreadPool(10)
+        if (executor == null) executor = Executors.newFixedThreadPool(10)
 
         try {
             val builder = Builder()
@@ -297,7 +323,27 @@ class AdBlockVpnService : VpnService() {
     }
 
     private fun isAd(domain: String): Boolean {
-        return BLOCKED_KEYWORDS.any { domain.contains(it, ignoreCase = true) }
+        val lowerDomain = domain.lowercase()
+        
+        // 1. Check SYSTEM_WHITELIST (Critical Protection)
+        if (SYSTEM_WHITELIST.any { lowerDomain == it || lowerDomain.endsWith(".$it") }) {
+            return false
+        }
+        
+        // 2. Check blockedDomains HashSet
+        synchronized(blockedDomains) {
+            // Check exact match
+            if (blockedDomains.contains(lowerDomain)) return true
+            
+            // Check subdomain match (e.g. ads.google.com -> google.com)
+            var parent = lowerDomain
+            while (parent.contains(".")) {
+                parent = parent.substringAfter(".")
+                if (blockedDomains.contains(parent)) return true
+            }
+        }
+        
+        return false
     }
 
     private fun forwardQuery(payload: ByteArray): ByteArray? {

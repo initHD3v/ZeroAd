@@ -39,6 +39,12 @@ data class AppThreatInfo(
 )
 
 @Serializable
+data class AdSignature(val pattern: String, val name: String)
+
+@Serializable
+data class AdSignaturesContainer(val signatures: List<AdSignature>)
+
+@Serializable
 data class ScanResultKotlin(
     val totalInstalledPackages: Int,
     val suspiciousPackagesCount: Int,
@@ -50,6 +56,16 @@ class MainActivity : FlutterActivity() {
     private val VPN_REQUEST_CODE = 101
     private var pendingResult: MethodChannel.Result? = null
 
+    private fun loadAdSignatures(): List<AdSignature> {
+        return try {
+            val jsonString = assets.open("ad_signatures.json").bufferedReader().use { it.readText() }
+            val container = Json.decodeFromString<AdSignaturesContainer>(jsonString)
+            container.signatures
+        } catch (e: Exception) {
+            listOf()
+        }
+    }
+
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler {
@@ -59,6 +75,7 @@ class MainActivity : FlutterActivity() {
                     CoroutineScope(Dispatchers.IO).launch {
                         val packageManager: PackageManager = applicationContext.packageManager
                         val installedApps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+                        val adSignatures = loadAdSignatures()
                         val threatsDetected = mutableListOf<AppThreatInfo>()
                         var suspiciousCount = 0
 
@@ -124,25 +141,10 @@ class MainActivity : FlutterActivity() {
                                     packageInfo.activities?.forEach { components.add(it.name) }
                                     packageInfo.services?.forEach { components.add(it.name) }
 
-                                    val adSdkSignatures = mapOf(
-                                        "com.google.android.gms.ads" to "AdMob (Google)",
-                                        "com.applovin" to "AppLovin",
-                                        "com.unity3d.ads" to "Unity Ads",
-                                        "com.unity3d.services.ads" to "Unity Ads",
-                                        "com.ironsource" to "IronSource",
-                                        "com.mbridge.msdk" to "Mintegral",
-                                        "com.vungle" to "Vungle",
-                                        "com.facebook.ads" to "Meta Audience Network",
-                                        "com.startapp" to "StartApp",
-                                        "com.inmobi" to "InMobi",
-                                        "com.chartboost" to "Chartboost",
-                                        "com.fyber" to "Fyber"
-                                    )
-
-                                    for ((signature, name) in adSdkSignatures) {
-                                        if (components.any { it.contains(signature, ignoreCase = true) }) {
+                                    for (sig in adSignatures) {
+                                        if (components.any { it.contains(sig.pattern, ignoreCase = true) }) {
                                             val threat = Threat("AD_SDK", "MEDIUM", "AD_LIB_DETECTED", 
-                                                "Embedded Ad Framework detected: $name")
+                                                "Embedded Ad Framework detected: ${sig.name}")
                                             detectedThreatsForApp.add(threat)
                                             appZeroScore += getSeverityScore(threat.severity)
                                             break // Count once per app

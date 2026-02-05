@@ -1,0 +1,30 @@
+{
+  "signatures": [
+    { "pattern": "com.google.android.gms.ads", "name": "AdMob (Google)" },
+    { "pattern": "com.applovin", "name": "AppLovin" },
+    { "pattern": "com.unity3d.ads", "name": "Unity Ads" },
+    { "pattern": "com.unity3d.services.ads", "name": "Unity Ads" },
+    { "pattern": "com.ironsource", "name": "IronSource" },
+    { "pattern": "com.mbridge.msdk", "name": "Mintegral" },
+    { "pattern": "com.vungle", "name": "Vungle" },
+    { "pattern": "com.facebook.ads", "name": "Meta Audience Network" },
+    { "pattern": "com.startapp", "name": "StartApp" },
+    { "pattern": "com.inmobi", "name": "InMobi" },
+    { "pattern": "com.chartboost", "name": "Chartboost" },
+    { "pattern": "com.fyber", "name": "Fyber" },
+    { "pattern": "com.adcolony", "name": "AdColony" },
+    { "pattern": "com.tapjoy", "name": "Tapjoy" },
+    { "pattern": "com.pangle.ads", "name": "Pangle (TikTok Ads)" },
+    { "pattern": "com.bytedance.sdk.openads", "name": "Pangle (TikTok Ads)" },
+    { "pattern": "com.amazon.device.ads", "name": "Amazon Advertising" },
+    { "pattern": "com.yandex.mobile.ads", "name": "Yandex Ads" },
+    { "pattern": "com.mopub", "name": "MoPub" },
+    { "pattern": "com.appsflyer", "name": "AppsFlyer Tracker" },
+    { "pattern": "com.adjust.sdk", "name": "Adjust Tracker" },
+    { "pattern": "com.kochava", "name": "Kochava Tracker" },
+    { "pattern": "com.my.target", "name": "MyTarget" },
+    { "pattern": "com.flurry", "name": "Flurry Analytics" },
+    { "pattern": "com.mixpanel", "name": "Mixpanel Tracker" },
+    { "pattern": "com.singular.sdk", "name": "Singular Tracker" }
+  ]
+}
