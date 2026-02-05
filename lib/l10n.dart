@@ -52,6 +52,15 @@ class AppLocalizations {
   String get shieldInactive => isId ? "Perisai tidak aktif" : "Shield is inactive";
   String get blockedLabel => isId ? "DIBLOKIR" : "BLOCKED";
 
+  // --- ABOUT DIALOG ---
+  String get aboutTitle => isId ? "Tentang ZeroAd" : "About ZeroAd";
+  String get appVersion => isId ? "Versi Aplikasi" : "App Version";
+  String get developer => isId ? "Pengembang" : "Developer";
+  String get appDesc => isId 
+    ? "ZeroAd adalah solusi keamanan Android modern yang menggabungkan deteksi adware mendalam dengan pemblokiran iklan berbasis DNS." 
+    : "ZeroAd is a modern Android security solution combining deep adware detection with DNS-based ad blocking.";
+  String get closeBtn => isId ? "Tutup" : "Close";
+
   // --- DETAIL PAGE ---
   String get securityDetails => isId ? "Detail Keamanan" : "Security Details";
   String get threatAnalysis => isId ? "Analisis Ancaman" : "Threat Analysis";

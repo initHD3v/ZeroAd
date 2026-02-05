@@ -1,0 +1,24 @@
+{
+  "bypass_packages": [
+    "com.google.android.gms",
+    "com.google.android.gsf",
+    "com.android.vending",
+    "com.google.android.youtube",
+    "com.google.android.apps.youtube.music",
+    "com.android.chrome",
+    "com.google.android.gm",
+    "com.google.android.apps.docs",
+    "com.google.android.apps.docs.editors.sheets",
+    "com.google.android.apps.docs.editors.slides",
+    "com.google.android.apps.docs.editors.docs",
+    "com.google.android.apps.photos",
+    "com.google.android.apps.maps",
+    "com.google.android.googlequicksearchbox",
+    "com.whatsapp",
+    "com.facebook.katana",
+    "com.instagram.android",
+    "com.zhiliaoapp.musically",
+    "com.ss.android.ugc.trill",
+    "com.zhiliaoapp.musically.go"
+  ]
+}

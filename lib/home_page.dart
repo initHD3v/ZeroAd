@@ -231,61 +231,113 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           }
         }
 
-        return ListView(
-          padding: const EdgeInsets.all(16.0),
-          children: <Widget>[
-            Card(
-              elevation: 4.0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        final hasThreats = (_lastScanResult?.suspiciousPackagesCount ?? 0) > 0;
+
+        return CustomScrollView(
+          physics: const BouncingScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.all(24.0),
+                padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
-                     Icon(
-                      isScanning ? Icons.radar : (_lastScanResult?.suspiciousPackagesCount ?? 0) > 0 ? Icons.warning_amber_rounded : Icons.check_circle_outline,
-                      size: 64,
-                      color: isScanning 
-                          ? Theme.of(context).colorScheme.primary 
-                          : (_lastScanResult?.suspiciousPackagesCount ?? 0) > 0 ? Theme.of(context).colorScheme.error : Colors.green,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      isScanning ? l10n.scanningStatus : _scanResultText,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
+                    // Main Status Card
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: isScanning 
+                            ? [Theme.of(context).colorScheme.primary, Theme.of(context).colorScheme.primaryContainer]
+                            : (hasThreats 
+                                ? [Colors.red.shade800, Colors.red.shade400] 
+                                : [Colors.green.shade700, Colors.green.shade400]),
+                        ),
+                        borderRadius: BorderRadius.circular(28),
+                        boxShadow: [
+                          BoxShadow(
+                            color: (isScanning ? Theme.of(context).colorScheme.primary : (hasThreats ? Colors.red : Colors.green)).withAlpha(60),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          )
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          isScanning 
+                            ? const SizedBox(
+                                height: 80,
+                                width: 80,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 6),
+                              )
+                            : Icon(
+                                hasThreats ? Icons.gpp_maybe_rounded : Icons.verified_user_rounded,
+                                size: 80,
+                                color: Colors.white,
+                              ),
+                          const SizedBox(height: 24),
+                          Text(
+                            isScanning ? l10n.scanningStatus : (hasThreats ? "Security Risks Found" : "Your Device is Secure"),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            isScanning ? "Analyzing application manifests..." : (hasThreats ? "ZeroAd detected potential adware components" : "No malicious patterns detected in your apps"),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.white.withAlpha(200), fontSize: 14),
+                          ),
+                        ],
                       ),
                     ),
+                    const SizedBox(height: 24),
+                    // Quick Stats
+                    Row(
+                      children: [
+                        Expanded(child: _buildStatCard("Apps Scanned", "${_lastScanResult?.totalInstalledPackages ?? 0}", Icons.apps_rounded)),
+                        const SizedBox(width: 12),
+                        Expanded(child: _buildStatCard("Threats", "${_lastScanResult?.suspiciousPackagesCount ?? 0}", Icons.security_rounded, isError: hasThreats)),
+                      ],
+                    ),
+                    const SizedBox(height: 32),
+                    if (_lastScanResult != null && _lastScanResult!.threats.isNotEmpty) ...[
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          "DETECTION REPORT",
+                          style: TextStyle(
+                            fontSize: 12, 
+                            fontWeight: FontWeight.bold, 
+                            letterSpacing: 1.2,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 20),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: _buildStatCard(l10n.totalApps, '${_lastScanResult?.totalInstalledPackages ?? 0}', Theme.of(context).colorScheme.primary),
-                ),
-                const SizedBox(width: 16.0),
-                Expanded(
-                  child: _buildStatCard(l10n.threatsCount, '${_lastScanResult?.suspiciousPackagesCount ?? 0}', (_lastScanResult?.suspiciousPackagesCount ?? 0) > 0 ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.primary),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24.0),
             if (_lastScanResult != null && _lastScanResult!.threats.isNotEmpty) ...[
-              Text(l10n.analysisReport, style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
-              const SizedBox(height: 12.0),
-              if (highRisk.isNotEmpty) _buildSeveritySection(l10n.criticalRisk, highRisk, Colors.red.shade700, Icons.gpp_bad_rounded, true),
-              if (mediumRisk.isNotEmpty) _buildSeveritySection(l10n.warnings, mediumRisk, Colors.orange.shade800, Icons.warning_rounded, false),
-              if (lowRisk.isNotEmpty) _buildSeveritySection(l10n.lowPriority, lowRisk, Colors.yellow.shade800, Icons.info_rounded, false),
-              const SizedBox(height: 80.0),
+              if (highRisk.isNotEmpty) _buildSliverSeveritySection(l10n.criticalRisk, highRisk, Colors.red.shade700, Icons.gpp_bad_rounded),
+              if (mediumRisk.isNotEmpty) _buildSliverSeveritySection(l10n.warnings, mediumRisk, Colors.orange.shade800, Icons.warning_amber_rounded),
+              if (lowRisk.isNotEmpty) _buildSliverSeveritySection(l10n.lowPriority, lowRisk, Colors.blueGrey.shade700, Icons.info_outline_rounded),
+              const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ] else if (!isScanning && _lastScanResult != null) ...[
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 40),
-                  child: Text(l10n.noAdwareFound, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.shield_moon_outlined, size: 64, color: Theme.of(context).colorScheme.outline.withAlpha(100)),
+                      const SizedBox(height: 16),
+                      Text("Everything looks good!", style: TextStyle(color: Theme.of(context).colorScheme.outline, fontWeight: FontWeight.w500)),
+                    ],
+                  ),
                 ),
               )
             ],
@@ -295,51 +347,56 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildSeveritySection(String title, List<AppThreatInfo> apps, Color color, IconData icon, bool initExpanded) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      clipBehavior: Clip.antiAlias,
-      child: ExpansionTile(
-        initiallyExpanded: initExpanded,
-        collapsedBackgroundColor: color.withAlpha(20),
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        leading: Icon(icon, color: color),
-        title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color)),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(color: color.withAlpha(50), borderRadius: BorderRadius.circular(12)),
-          child: Text('${apps.length}', style: TextStyle(fontWeight: FontWeight.bold, color: color)),
-        ),
-        children: [
-          ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: apps.length > 5 ? 400 : apps.length * 80.0),
-            child: ListView.builder(
-              shrinkWrap: true,
-              physics: apps.length > 5 ? const BouncingScrollPhysics() : const NeverScrollableScrollPhysics(),
-              itemCount: apps.length,
-              itemBuilder: (context, index) => _buildThreatItem(apps[index], context),
+  Widget _buildSliverSeveritySection(String title, List<AppThreatInfo> apps, Color color, IconData icon) {
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      sliver: SliverToBoxAdapter(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 18),
+                const SizedBox(width: 8),
+                Text(title, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16)),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(color: color.withAlpha(30), borderRadius: BorderRadius.circular(8)),
+                  child: Text("${apps.length}", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
+                )
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            ...apps.map((app) => _buildThreatItem(app, context)).toList(),
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildStatCard(String title, String value, Color color) {
-    return Card(
-      elevation: 2.0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Text(title, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-            const SizedBox(height: 4),
-            Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)),
-          ],
-        ),
+  Widget _buildStatCard(String title, String value, IconData icon, {bool isError = false}) {
+    final color = isError ? Colors.red.shade700 : Theme.of(context).colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withAlpha(100)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+              Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
+            ],
+          )
+        ],
       ),
     );
   }
@@ -352,10 +409,16 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       highestSeverity = 'MEDIUM';
     }
 
+    final color = _getSeverityColor(highestSeverity);
+
     return Card(
-      margin: const EdgeInsets.only(bottom: 8.0, left: 8, right: 8, top: 4),
+      margin: const EdgeInsets.only(bottom: 10),
       elevation: 0,
-      color: Theme.of(context).colorScheme.surface,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withAlpha(80)),
+      ),
       child: ListTile(
         onTap: () async {
           final result = await Navigator.push(
@@ -364,13 +427,31 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
           );
           if (result == true) _scanForAdware();
         },
-        leading: CircleAvatar(
-          backgroundColor: _getSeverityColor(highestSeverity).withAlpha(50),
-          child: Icon(_getThreatIcon(appThreatInfo.detectedThreats.first.type), color: _getSeverityColor(highestSeverity)),
+        leading: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: color.withAlpha(20),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Center(
+            child: Text(
+              appThreatInfo.appName.isNotEmpty ? appThreatInfo.appName[0].toUpperCase() : "?",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color),
+            ),
+          ),
         ),
-        title: Text(appThreatInfo.appName, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(appThreatInfo.packageName, style: const TextStyle(fontSize: 12)),
-        trailing: Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        title: Text(
+          appThreatInfo.appName, 
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)
+        ),
+        subtitle: Text(
+          appThreatInfo.packageName, 
+          style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: const Icon(Icons.chevron_right_rounded, size: 20),
       ),
     );
   }
@@ -843,6 +924,99 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     );
   }
 
+  void _showAbout() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // App Logo
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Theme.of(context).colorScheme.primary.withAlpha(40),
+                    blurRadius: 15,
+                    offset: const Offset(0, 8),
+                  )
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Image.asset("zeroad.png", width: 90, height: 90),
+              ),
+            ),
+            const SizedBox(height: 24),
+            // App Name & Version
+            Text(
+              "ZeroAd",
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            const Text(
+              "Version 1.0.0+1",
+              style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 24),
+            // Description
+            Text(
+              l10n.appDesc,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, height: 1.5),
+            ),
+            const SizedBox(height: 24),
+            // Info Card
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest.withAlpha(100),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                children: [
+                  _buildInfoRow(l10n.developer, "initHD3v"),
+                  const Divider(height: 16),
+                  _buildInfoRow("Build Date", "Feb 2026"),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            // Legal
+            const Text(
+              "© 2026 initHD3v • All Rights Reserved",
+              style: TextStyle(fontSize: 10, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.closeBtn, style: const TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          Text(value, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -852,6 +1026,22 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
         actions: [
           if (_currentIndex == 0)
             IconButton(icon: const Icon(Icons.refresh), onPressed: _isScanning.value ? null : _scanForAdware, tooltip: l10n.scanBtn),
+          PopupMenuButton<int>(
+            onSelected: (value) => _showAbout(),
+            icon: const Icon(Icons.more_vert),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 1,
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, size: 20),
+                    const SizedBox(width: 12),
+                    Text(l10n.aboutTitle),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: IndexedStack(

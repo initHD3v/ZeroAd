@@ -8,6 +8,8 @@ import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.system.OsConstants
 import android.util.Log
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileInputStream
@@ -21,6 +23,9 @@ import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+
+@Serializable
+data class BypassListContainer(val bypass_packages: List<String>)
 
 class AdBlockVpnService : VpnService() {
 
@@ -51,7 +56,14 @@ class AdBlockVpnService : VpnService() {
         private val SYSTEM_WHITELIST = listOf(
             "google.com", "googleapis.com", "gstatic.com", "googleusercontent.com",
             "whatsapp.net", "whatsapp.com", "facebook.com", "fbcdn.net",
-            "instagram.com", "android.com", "play.google.com"
+            "instagram.com", "android.com", "play.google.com", "drive.google.com"
+        )
+
+        // Pre-cached DNS servers to avoid overhead
+        private val UPSTREAM_DNS_SERVERS = listOf(
+            InetAddress.getByAddress(byteArrayOf(1, 1, 1, 1)), // Cloudflare
+            InetAddress.getByAddress(byteArrayOf(8, 8, 8, 8)), // Google
+            InetAddress.getByAddress(byteArrayOf(9, 9, 9, 9))  // Quad9
         )
     }
 
@@ -95,6 +107,17 @@ class AdBlockVpnService : VpnService() {
         }
     }
 
+    private fun loadSystemBypassList(): List<String> {
+        return try {
+            val jsonString = assets.open("system_bypass.json").bufferedReader().use { it.readText() }
+            val container = Json.decodeFromString<BypassListContainer>(jsonString)
+            container.bypass_packages
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading bypass list", e)
+            listOf()
+        }
+    }
+
     private fun loadWhitelist() {
         prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
         val savedList = prefs.getStringSet("whitelisted_apps", emptySet()) ?: emptySet()
@@ -127,24 +150,12 @@ class AdBlockVpnService : VpnService() {
             builder.addDnsServer("8.8.8.8")
             builder.setMtu(1500)
             
-            // Critical Google Services Bypass to ensure Connectivity
-            val bypassApps = listOf(
-                "com.google.android.gms",
-                "com.google.android.gsf",
-                "com.android.vending",
-                "com.google.android.youtube",
-                "com.google.android.apps.youtube.music",
-                "com.android.chrome",
-                "com.google.android.gm",
-                "com.google.android.apps.maps",
-                "com.google.android.googlequicksearchbox",
-                "com.whatsapp",
-                "com.facebook.katana",
-                "com.instagram.android"
-            )
-            
+            // Load and apply bypass list from JSON
+            val bypassApps = loadSystemBypassList()
             for (app in bypassApps) {
-                try { builder.addDisallowedApplication(app) } catch (e: Exception) {}
+                try { builder.addDisallowedApplication(app) } catch (e: Exception) {
+                    Log.w(TAG, "Could not bypass app: $app")
+                }
             }
 
             vpnInterface = builder.establish()
@@ -325,7 +336,7 @@ class AdBlockVpnService : VpnService() {
     private fun isAd(domain: String): Boolean {
         val lowerDomain = domain.lowercase()
         
-        // 1. Check SYSTEM_WHITELIST (Critical Protection)
+        // 1. Check SYSTEM_WHITELIST (Efficient suffix check)
         if (SYSTEM_WHITELIST.any { lowerDomain == it || lowerDomain.endsWith(".$it") }) {
             return false
         }
@@ -349,34 +360,27 @@ class AdBlockVpnService : VpnService() {
     private fun forwardQuery(payload: ByteArray): ByteArray? {
         val socket = DatagramSocket()
         protect(socket)
-        socket.soTimeout = 2000 // 2 seconds timeout
+        socket.soTimeout = 1500 // Snappier timeout
 
-        // Robust DNS List - Try until one works
-        val upstreamDns = listOf(
-            "1.1.1.1", // Cloudflare (Fastest usually)
-            "8.8.8.8", // Google
-            "9.9.9.9"  // Quad9
-        )
+        val outPacket = DatagramPacket(payload, payload.size)
+        val inData = ByteArray(1500)
+        val inPacket = DatagramPacket(inData, inData.size)
 
-        for (dnsIp in upstreamDns) {
+        for (address in UPSTREAM_DNS_SERVERS) {
             try {
-                val address = InetAddress.getByName(dnsIp)
-                val packet = DatagramPacket(payload, payload.size, address, 53)
-                socket.send(packet)
-
-                val data = ByteArray(1500)
-                val response = DatagramPacket(data, data.size)
-                socket.receive(response)
+                outPacket.address = address
+                outPacket.port = 53
+                socket.send(outPacket)
+                socket.receive(inPacket)
                 
                 socket.close()
-                return data.copyOf(response.length)
+                return inData.copyOf(inPacket.length)
             } catch (e: Exception) {
-                // Try next DNS
                 continue
             }
         }
         socket.close()
-        return null // All failed
+        return null
     }
 
     private fun stopVpn() {
