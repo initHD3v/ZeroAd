@@ -77,7 +77,10 @@ class MainActivity : FlutterActivity() {
 
                             // --- ADVANCED HEURISTICS (Deep Scan) ---
                             try {
-                                val packageInfo = packageManager.getPackageInfo(appInfo.packageName, PackageManager.GET_PERMISSIONS)
+                                // Request Activities & Services for Deep Component Scan
+                                val packageInfo = packageManager.getPackageInfo(appInfo.packageName, 
+                                    PackageManager.GET_PERMISSIONS or PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES)
+                                
                                 val permissions = packageInfo.requestedPermissions?.toList() ?: listOf()
 
                                 // 1. Stealth Installer Check
@@ -90,15 +93,15 @@ class MainActivity : FlutterActivity() {
 
                                 // 2. Boot Overlay Combo (Aggressive Adware Pattern)
                                 if (permissions.contains("android.permission.RECEIVE_BOOT_COMPLETED") && 
-                                    permissions.contains("android.permission.SYSTEM_ALERT_WINDOW")) {
+                                    permissions.contains("android.permission.SYSTEM_ALERT_WINDOW") && !isSystemApp) {
                                     val threat = Threat("BEHAVIORAL", "HIGH", "BOOT_OVERLAY", 
                                         "App starts at boot and can draw over other apps. Highly typical of intrusive adware.")
                                     detectedThreatsForApp.add(threat)
                                     appZeroScore += getSeverityScore(threat.severity)
                                 }
 
-                                // 3. Privacy Miner (Contextual)
-                                if (appName.contains("Editor", ignoreCase = true) || appName.contains("Flashlight", ignoreCase = true)) {
+                                // 3. Privacy Miner (Contextual) - Only for non-system apps
+                                if (!isSystemApp && (appName.contains("Editor", ignoreCase = true) || appName.contains("Flashlight", ignoreCase = true))) {
                                     if (permissions.contains("android.permission.READ_SMS") || permissions.contains("android.permission.READ_CALL_LOG")) {
                                         val threat = Threat("PRIVACY", "HIGH", "PRIVACY_MINER", 
                                             "Utility app requesting sensitive personal data (SMS/Logs) unrelated to its function.")
@@ -107,33 +110,47 @@ class MainActivity : FlutterActivity() {
                                     }
                                 }
 
-                                // 4. Basic Accessibility Abuse
-                                if (permissions.contains("android.permission.BIND_ACCESSIBILITY_SERVICE")) {
+                                // 4. Basic Accessibility Abuse - Highly sensitive for non-system apps
+                                if (permissions.contains("android.permission.BIND_ACCESSIBILITY_SERVICE") && !isSystemApp) {
                                     val threat = Threat("PERMISSION_ABUSE", "HIGH", "ACCESSIBILITY_ABUSE", "Requests full screen reading & control.")
                                     detectedThreatsForApp.add(threat)
                                     appZeroScore += getSeverityScore(threat.severity)
                                 }
 
-                            } catch (e: Exception) {}
+                                // --- 5. DEEP COMPONENT SCAN (Ad SDK Detection) ---
+                                // Skip this for system apps as they may provide ad frameworks as a service
+                                if (!isSystemApp) {
+                                    val components = mutableListOf<String>()
+                                    packageInfo.activities?.forEach { components.add(it.name) }
+                                    packageInfo.services?.forEach { components.add(it.name) }
 
-                            // --- EXPANDED SIGNATURE SCAN ---
-                            val adSdkPatterns = mapOf(
-                                "com.applovin" to "AD_SDK_APPLOVIN",
-                                "com.mbridge.msdk" to "AD_SDK_MINTEGRAL",
-                                "com.vungle.warren" to "AD_SDK_VUNGLE",
-                                "com.ironsource" to "AD_SDK_IRONSOURCE",
-                                "com.unity3d.ads" to "AD_SDK_UNITY",
-                                "com.google.android.gms.ads" to "AD_SDK_ADMOB"
-                            )
+                                    val adSdkSignatures = mapOf(
+                                        "com.google.android.gms.ads" to "AdMob (Google)",
+                                        "com.applovin" to "AppLovin",
+                                        "com.unity3d.ads" to "Unity Ads",
+                                        "com.unity3d.services.ads" to "Unity Ads",
+                                        "com.ironsource" to "IronSource",
+                                        "com.mbridge.msdk" to "Mintegral",
+                                        "com.vungle" to "Vungle",
+                                        "com.facebook.ads" to "Meta Audience Network",
+                                        "com.startapp" to "StartApp",
+                                        "com.inmobi" to "InMobi",
+                                        "com.chartboost" to "Chartboost",
+                                        "com.fyber" to "Fyber"
+                                    )
 
-                            for ((pattern, code) in adSdkPatterns) {
-                                if (appInfo.packageName.contains(pattern, ignoreCase = true)) {
-                                    val threat = Threat("AD_SDK", "MEDIUM", code, "Contains integrated advertisement delivery framework.")
-                                    detectedThreatsForApp.add(threat)
-                                    appZeroScore += getSeverityScore(threat.severity)
-                                    break // One SDK tag per app is enough for scanning
+                                    for ((signature, name) in adSdkSignatures) {
+                                        if (components.any { it.contains(signature, ignoreCase = true) }) {
+                                            val threat = Threat("AD_SDK", "MEDIUM", "AD_LIB_DETECTED", 
+                                                "Embedded Ad Framework detected: $name")
+                                            detectedThreatsForApp.add(threat)
+                                            appZeroScore += getSeverityScore(threat.severity)
+                                            break // Count once per app
+                                        }
+                                    }
                                 }
-                            }
+
+                            } catch (e: Exception) {}
 
                             if (detectedThreatsForApp.isNotEmpty()) {
                                 threatsDetected.add(AppThreatInfo(appInfo.packageName, appName, isSystemApp, detectedThreatsForApp, appZeroScore))
