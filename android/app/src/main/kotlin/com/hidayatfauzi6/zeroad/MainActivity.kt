@@ -4,6 +4,7 @@ import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import android.content.pm.PackageManager
 import android.content.pm.ApplicationInfo
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.net.VpnService
@@ -174,6 +175,39 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "getVpnLogs" -> result.success(AdBlockVpnService.getLogs())
+
+                "addToWhitelist" -> {
+                    val packageName = call.argument<String>("packageName")
+                    if (packageName != null) {
+                        val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
+                        val currentSet = prefs.getStringSet("whitelisted_apps", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                        currentSet.add(packageName)
+                        prefs.edit().putStringSet("whitelisted_apps", currentSet).apply()
+                        
+                        // Notify VPN Service
+                        val intent = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_UPDATE_WHITELIST }
+                        startService(intent)
+                        
+                        result.success(true)
+                    } else result.error("ERROR", "Null package", null)
+                }
+
+                "removeFromWhitelist" -> {
+                    val packageName = call.argument<String>("packageName")
+                    if (packageName != null) {
+                        val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
+                        val currentSet = prefs.getStringSet("whitelisted_apps", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                        currentSet.remove(packageName)
+                        prefs.edit().putStringSet("whitelisted_apps", currentSet).apply()
+                        
+                        // Notify VPN Service
+                        val intent = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_UPDATE_WHITELIST }
+                        startService(intent)
+                        
+                        result.success(true)
+                    } else result.error("ERROR", "Null package", null)
+                }
+
                 else -> result.notImplemented()
             }
         }

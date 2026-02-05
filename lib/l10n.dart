@@ -57,6 +57,7 @@ class AppLocalizations {
   String get threatAnalysis => isId ? "Analisis Ancaman" : "Threat Analysis";
   String get whatIsRisk => isId ? "Apa risikonya?" : "What is the risk?";
   String get impactOnYou => isId ? "Dampak bagi Anda:" : "Impact on you:";
+  String get recommendationLabel => isId ? "Saran Tindakan:" : "Recommendation:";
   String get uninstallBtn => isId ? "Hapus Aplikasi" : "Uninstall App";
   String get ignoreBtn => isId ? "Abaikan" : "Ignore";
 }

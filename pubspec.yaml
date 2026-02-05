@@ -30,7 +30,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  google_fonts: ^6.2.1 # Added for fresh, modern typography
   json_annotation: ^4.9.0 # Added for JSON serialization/deserialization
 
   # The following adds the Cupertino Icons font to your application.
