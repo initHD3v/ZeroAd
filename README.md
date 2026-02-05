@@ -4,11 +4,9 @@
 
 # ZeroAd
 
-**Advanced Adware Detection & Global DNS Shield**
+**Advanced Adware Detection & Global DNS Shield for Android**
 
-<p align="center">
-<b>ZeroAd</b> adalah solusi keamanan Android modern yang menggabungkan deteksi adware mendalam dengan pemblokiran iklan berbasis DNS. Kini dilengkapi dengan <b>Deep Scan Engine</b> dan dukungan <b>Multi-bahasa</b> otomatis.
-</p>
+ZeroAd adalah aplikasi keamanan Android yang dirancang untuk memberikan perlindungan komprehensif terhadap gangguan adware dan pelacakan data. Dengan menggabungkan pemindaian heuristik mendalam (Deep Scan) dan sistem pertahanan jaringan berbasis DNS, ZeroAd memastikan perangkat Anda tetap bersih, cepat, dan privat tanpa memerlukan akses Root.
 
 [Laporkan Bug](https://github.com/initHD3v/ZeroAd/issues) · [Ajukan Fitur](https://github.com/initHD3v/ZeroAd/issues)
 
@@ -16,26 +14,30 @@
 
 ---
 
-## ✨ Fitur Utama Terbaru
+## 🚀 Update Terbaru (Februari 2026)
 
-ZeroAd kini lebih cerdas dan komunikatif dalam melindungi perangkat Anda.
+Kami terus meningkatkan efisiensi dan akurasi deteksi. Berikut adalah pembaharuan signifikan pada versi terbaru:
 
-### 🛡️ Deep Scan Engine (Mesin Pemindai Mendalam)
-Versi terbaru kini mampu mendeteksi pola aplikasi jahat yang lebih kompleks:
-*   **Stealth Installer:** Mendeteksi aplikasi yang memiliki kemampuan menginstal paket lain tanpa interaksi pengguna.
-*   **Boot Overlay Patterns:** Mengidentifikasi kombinasi izin agresif yang sering digunakan untuk menampilkan iklan popup saat HP baru menyala.
-*   **Privacy Miner Detection:** Menandai aplikasi utilitas (kalkulator, editor foto) yang meminta akses sensitif ke SMS atau Log Panggilan.
-*   **Detailed Risk Insights:** Setiap ancaman kini dilengkapi penjelasan manusiawi tentang **"Apa risikonya?"** dan **"Dampaknya bagi Anda"**.
+*   **Identifikasi Aplikasi per Paket (Per-App Attribution):** Berbeda dengan filter DNS standar, ZeroAd kini mampu mendeteksi aplikasi spesifik mana yang melakukan pemanggilan domain iklan. Hal ini dicapai melalui integrasi `ConnectivityManager` untuk Android modern dan fallback `/proc/net` untuk perangkat lama.
+*   **Smart DNS Failover:** Mengatasi masalah "No Internet" yang sering terjadi pada layanan VPN. Jika server DNS utama (seperti Google DNS) diblokir oleh ISP lokal, ZeroAd akan secara otomatis mengalihkan permintaan ke Cloudflare (1.1.1.1) atau Quad9 secara instan.
+*   **Hierarki Live Activity:** Antarmuka pemantauan kini dikelompokkan berdasarkan aplikasi. Anda dapat melihat aplikasi mana yang paling banyak mengirimkan iklan, lalu masuk ke detail untuk melihat domain spesifik yang diblokir.
+*   **Sistem Whitelist Aplikasi:** Pengguna kini memiliki kendali penuh untuk mengecualikan aplikasi tertentu dari filter iklan jika diperlukan, langsung dari layar pemantauan aktivitas.
 
-### ⚡ Enhanced Network Shield (v2.0)
-*   **Global DNS Hijacking:** Mencegat trafik DNS yang di-hardcode (seperti 8.8.8.8) untuk memastikan tidak ada iklan yang lolos.
-*   **IPv6 Protection:** Menutup celah iklan yang masuk melalui jalur jaringan modern.
-*   **Smart Bypass:** YouTube, WhatsApp, dan layanan sistem tetap lancar tanpa gangguan pemuatan konten.
+---
 
-### 🌐 Dukungan Multi-bahasa Otomatis
-ZeroAd sekarang mendeteksi bahasa sistem perangkat Anda dan menyesuaikan seluruh antarmuka secara otomatis:
-*   **Bahasa Indonesia:** Penjelasan risiko dan panduan teknis dalam bahasa lokal yang mudah dimengerti.
-*   **English:** Standard professional security terminology.
+## ✨ Fitur Utama
+
+### 🛡️ Deep Scan Engine
+Mesin pemindai yang bekerja dengan menganalisis manifes dan pola perilaku aplikasi untuk menemukan potensi ancaman yang sering lolos dari antivirus konvensional:
+*   **Stealth Installer:** Deteksi aplikasi yang memiliki izin untuk menginstal paket lain secara diam-diam.
+*   **Boot Overlay Patterns:** Mengidentifikasi aplikasi yang memaksa tampil di layar (popup) segera setelah perangkat dinyalakan.
+*   **Privacy Miner:** Menandai aplikasi utilitas sederhana (seperti senter atau editor foto) yang meminta akses tidak wajar ke SMS dan log panggilan.
+
+### ⚡ Enhanced Network Shield
+Melindungi seluruh perangkat melalui sinkhole DNS lokal yang efisien:
+*   **Smart Split Tunneling:** Menghemat baterai dan menjaga kecepatan dengan hanya memproses trafik DNS. Aplikasi berat seperti YouTube, WhatsApp, dan Game tetap berjalan di jalur internet asli tanpa lag.
+*   **Blokade IPv6:** Menutup celah iklan yang seringkali masuk melalui jalur jaringan modern (IPv6).
+*   **Sistem Label Manusiawi:** Menghilangkan kode teknis yang membingungkan dan menggantinya dengan informasi yang mudah dimengerti oleh pengguna awam.
 
 ---
 
@@ -70,36 +72,18 @@ ZeroAd sekarang mendeteksi bahasa sistem perangkat Anda dan menyesuaikan seluruh
 
 ## 🛠️ Arsitektur Teknologi
 
-| Layer | Teknologi | Keterangan |
-| :--- | :--- | :--- |
-| **UI** | Flutter (Dart) | Navigasi 3-tab, Material 3, **Localization System** |
-| **Core** | Kotlin Native | **Deep Heuristics**, VpnService Interface, Coroutines |
-| **Build** | Gradle (Groovy) | Kompatibilitas Android 15 & Arsitektur 64-bit |
-| **Storage** | SharedPreferences | Persistent Whitelist & Security States |
-
----
-
-## ⚙️ Cara Kerja Deep Scan
-
-ZeroAd tidak hanya memindai nama paket, tetapi melakukan pembedahan logika terhadap aplikasi:
-1.  **Iterasi & Koleksi:** Mengumpulkan data manifes dari seluruh aplikasi.
-2.  **Korelasi Izin (Heuristik):** Menghitung skor penalti jika aplikasi utilitas meminta izin sistem yang tinggi (misal: Aksesibilitas + Boot Completed).
-3.  **Local Dictionary:** Mencocokkan temuan dengan database risiko lokal untuk memberikan penjelasan detail tanpa memerlukan koneksi internet.
+*   **Frontend:** Flutter (Dart) untuk antarmuka yang responsif dan dukungan multi-bahasa.
+*   **Backend Core:** Kotlin Native yang berinteraksi langsung dengan `VpnService` Android untuk performa tinggi.
+*   **Security:** Implementasi SELinux-compliant API untuk deteksi pemilik koneksi pada Android 10+.
 
 ---
 
 ## 🔐 Keamanan & Privasi
-*   **Local Processing:** Semua pemindaian dilakukan 100% di dalam perangkat.
-*   **Zero Data Collection:** Tidak ada data penggunaan atau riwayat DNS yang dikirim ke server ZeroAd.
-*   **Standard Compliance:** Bekerja dalam batasan *Sandbox* Android tanpa memerlukan akses Root.
 
----
-
-## 🤝 Kontribusi
-Kontribusi untuk memperkaya database tanda tangan adware sangat kami hargai.
-1.  Fork repositori ini.
-2.  Tambahkan pola deteksi baru di `MainActivity.kt`.
-3.  Ajukan Pull Request.
+Privasi adalah pondasi utama ZeroAd:
+*   **Local-First Processing:** Semua data pemindaian dan log DNS diproses 100% di dalam perangkat Anda. Tidak ada data yang dikirim ke server eksternal.
+*   **No Data Mining:** ZeroAd tidak mengumpulkan riwayat pencarian atau data penggunaan aplikasi Anda.
+*   **Open Architecture:** Dirancang untuk bekerja dalam batasan sandbox Android demi keamanan sistem yang maksimal.
 
 ---
 
