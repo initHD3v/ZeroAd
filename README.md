@@ -1,99 +1,100 @@
 <div align="center">
 
-<img src="zeroad.png" alt="ZeroAd Logo" width="140" height="140" />
+<img src="zeroad.png" alt="ZeroAd Logo" width="160" height="160" />
 
 # ZeroAd
 **Advanced Adware Detection & Global DNS Shield for Android**
 
-ZeroAd adalah solusi keamanan Android tingkat lanjut yang dirancang untuk melindungi privasi pengguna dari gangguan adware dan pelacakan data tanpa memerlukan akses Root. Menggabungkan teknik pemindaian manifest mendalam dengan pertahanan jaringan berbasis DNS yang sangat efisien.
+![Android](https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)
+![Flutter](https://img.shields.io/badge/Framework-Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Backend-Kotlin-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
+![License](https://img.shields.io/badge/Status-Development-orange?style=for-the-badge)
 
-[Laporkan Masalah](https://github.com/initHD3v/ZeroAd/issues) · [Ajukan Fitur](https://github.com/initHD3v/ZeroAd/issues)
+ZeroAd adalah solusi keamanan Android tingkat lanjut yang dirancang untuk melindungi privasi dari gangguan adware dan pelacakan data tanpa memerlukan akses Root.
+
+[Report Issues](https://github.com/initHD3v/ZeroAd/issues) • [Feature Request](https://github.com/initHD3v/ZeroAd/issues)
 
 </div>
 
 ---
 
-## 🚀 Perjalanan Pengembangan (Roadmap)
+##  Overview
 
-Evolusi ZeroAd dibangun dengan fokus pada keseimbangan antara keamanan ketat, performa ringan, dan pengalaman pengguna premium.
-
-### **Fase 1: Fondasi & Konsep Jaringan**
-*   **VpnService Core:** Implementasi dasar terowongan VPN untuk mencegat trafik DNS pada Port 53 secara lokal.
-*   **DNS Parser Engine:** Mesin ringan untuk membongkar dan membaca domain dari paket jaringan UDP secara real-time.
-*   **Static Filtering:** Penggunaan daftar blokir awal untuk pengujian konsep pencegatan domain iklan.
-
-### **Fase 2: Intelegensi & Deteksi Aplikasi**
-*   **Manifest Heuristics:** Scanner cerdas untuk mendeteksi pola perizinan agresif (seperti *Boot Overlay* dan *Accessibility Abuse*).
-*   **Native UID Identification:** Implementasi API `ConnectivityManager` dan scanning `/proc/net/` untuk mengetahui aplikasi pengirim trafik.
-*   **System Awareness:** Sistem pengecualian otomatis untuk aplikasi inti sistem agar stabilitas perangkat tetap terjaga.
-
-### **Fase 3: Optimasi Performa & UX Premium**
-*   **HashSet Engine:** Migrasi database filter ke struktur data `HashSet` untuk pencarian domain dalam waktu mikrodetik (O(1)).
-*   **Material 3 UI:** Perombakan antarmuka menggunakan standar desain Google terbaru, efek gradien dinamis, dan hirarki informasi yang bersih.
-*   **JSON Signature Database:** Pemisahan logika program dengan database signature iklan eksternal untuk kemudahan pembaruan.
-
-### **Fase 4: Stabilitas & Streaming Real-time**
-*   **EventChannel Architecture:** Migrasi dari sistem *polling* ke aliran data real-time dari Native Kotlin ke Flutter.
-*   **Dynamic Bypass:** Implementasi *Split Tunneling* dinamis untuk aplikasi terpercaya guna mendapatkan kecepatan internet asli ISP.
-*   **Smart Notification:** Sistem notifikasi latar depan yang informatif dan patuh terhadap aturan Android 14/15.
-
-### **Fase 5: Modularitas & High-Performance (Status Saat Ini)**
-*   **Clean Modular Architecture:** Refaktorisasi total kode ke dalam modul UI, Logic, dan Widgets untuk skalabilitas industri.
-*   **Provider State Management:** Implementasi manajemen state terpusat yang reaktif dan sangat hemat sumber daya.
-*   **Isolate-Based Processing:** Pemindahan beban berat pemindaian manifest ke *Background Isolate* untuk menjaga UI tetap mulus (60 FPS).
-*   **Reverse Domain Mapping:** Logika heuristik untuk mengidentifikasi aplikasi di balik trafik sistem (seperti Shopee/TikTok) yang sering tersembunyi.
-*   **Native Scaling Engine:** Sistem cerdas pengambil ikon dan label aplikasi asli dengan optimasi memori bitmap.
+ZeroAd beroperasi secara lokal dengan menggabungkan dua lapis pertahanan: **Static Analysis** (Scanner) dan **Dynamic Traffic Filtering** (Shield). Dengan memanfaatkan `VpnService` lokal, sistem mampu mencegat paket DNS pada Port 53 tanpa mengalihkan trafik data utama ke server eksternal, menjamin latensi rendah dan keamanan data tetap terjaga di dalam perangkat.
 
 ---
 
-## ✨ Fitur Unggulan
+##  Mekanisme Kerja (Technical Workflow)
 
-*   🛡️ **Deep Scanner:** Membedah aplikasi hingga level Activity & Service untuk menemukan SDK iklan tersembunyi.
-*   ⚡ **Smart Shield:** Perlindungan DNS global dengan konsumsi baterai minimal dan efisiensi CPU maksimal.
-*   ✅ **Real-App Attribution:** Deteksi akurat aplikasi asli di balik trafik DNS sistem melalui *Heuristic Mapping*.
-*   🖼️ **Premium Visuals:** Antarmuka modern yang menampilkan ikon asli aplikasi untuk identifikasi yang lebih manusiawi.
-*   🌐 **DNS Failover:** Otomatis beralih ke Cloudflare, Google, atau Quad9 jika terjadi gangguan jaringan.
+### 1. Deep Adware Scanning
+Proses ini mendeteksi potensi ancaman sebelum aplikasi dijalankan melalui:
+* **Manifest Heuristics:** Pembedahan berkas `AndroidManifest.xml` untuk mendeteksi kombinasi perizinan berbahaya (misal: *Overlay* + *Boot Completed*).
+* **SDK Signature Matching:** Pencocokan komponen internal aplikasi dengan database signature SDK iklan agresif.
+* **Scoring System:** Pemberian penilaian risiko (**ZeroScore**) berdasarkan akumulasi temuan ancaman.
 
----
+### 2. Global DNS Shield (AdBlock)
+Pertahanan jaringan real-time tanpa memengaruhi kecepatan internet:
+* **VpnService Interception:** Pembuatan tunnel lokal khusus untuk Port 53 (DNS). Paket data lainnya tetap mengalir langsung ke internet.
+* **Fast HashSet Lookup:** Pengecekan domain pada blacklist menggunakan struktur data `HashSet` dengan kompleksitas **O(1)**.
+* **NXDOMAIN Response:** Pengiriman respon "Domain Tidak Ditemukan" untuk domain iklan, sehingga konten tidak pernah terunduh.
 
-## 🔍 Mekanisme Kerja (Technical Workflow)
-
-ZeroAd bekerja secara lokal dengan menggabungkan dua lapis pertahanan: **Static Analysis** (Scanner) dan **Dynamic Traffic Filtering** (Shield).
-
-### **1. Deep Adware Scanning**
-Proses ini mendeteksi potensi ancaman sebelum mereka beraksi:
-*   **Manifest Heuristics:** Sistem membedah berkas `AndroidManifest.xml` setiap aplikasi untuk mendeteksi kombinasi perizinan berbahaya, seperti aplikasi yang bisa menggambar di atas aplikasi lain (*Overlay*) sekaligus berjalan otomatis saat *boot*.
-*   **SDK Signature Matching:** Mencocokkan komponen internal aplikasi (Activity, Service, Receiver) dengan database signature SDK iklan pihak ketiga yang dikenal agresif.
-*   **Scoring System:** Memberikan penilaian risiko (ZeroScore) berdasarkan akumulasi temuan ancaman.
-
-### **2. Global DNS Shield (AdBlock)**
-Pertahanan jaringan real-time tanpa memengaruhi kecepatan internet ISP:
-*   **VpnService Interception:** ZeroAd menciptakan terowongan VPN lokal yang khusus mencegat trafik **Port 53 (DNS)**. Paket data lainnya tetap mengalir langsung ke internet (Zero Latency).
-*   **Fast HashSet Lookup:** Setiap domain yang dipanggil oleh aplikasi akan diperiksa dalam database blokir berbasis `HashSet`. Proses ini dilakukan dalam waktu mikrodetik dengan kompleksitas algoritma **O(1)**.
-*   **NXDOMAIN Response:** Jika domain terdeteksi sebagai iklan/tracker, ZeroAd akan mengirimkan respon palsu "Domain Tidak Ditemukan" (*NXDOMAIN*) ke aplikasi peminta, sehingga konten iklan tidak pernah terunduh.
-
-### **3. Smart Whitelisting & Bypass**
-Logika cerdas untuk memastikan aplikasi terpercaya tidak terganggu:
-*   **Dynamic Split-Tunneling:** Saat aplikasi dimasukkan ke *Whitelist*, ZeroAd akan menginstruksikan kernel Android untuk membebaskan aplikasi tersebut dari terowongan VPN (*Disallowed Application*), memberikan akses internet 100% tanpa filter.
-*   **Reverse Domain Mapping:** Untuk aplikasi yang menggunakan proksi sistem (seperti Shopee), ZeroAd menggunakan logika heuristik untuk membedah domain yang dipanggil dan mengatribusikannya kembali ke aplikasi asal secara akurat di tab *Live Activity*.
+### 3. Smart Whitelisting & Bypass
+* **Dynamic Split-Tunneling:** Pembebasan aplikasi *whitelist* dari tunnel VPN di level kernel untuk akses internet 100% original.
+* **Reverse Domain Mapping:** Logika heuristik untuk membedah domain dan mengatribusikannya kembali ke aplikasi asal secara akurat.
 
 ---
 
-## 🛠️ Arsitektur Teknologi
+##  Development Milestones
 
-*   **Frontend:** Flutter (Dart) - Modular Clean Architecture.
-*   **State Management:** Provider - Reactive & Performant.
-*   **Backend:** Kotlin Native - Android VpnService & Kernel Interaction.
-*   **Performance:** Multithreading (Isolates & Coroutines) + Log Batching System.
+<details open>
+<summary><b>Fase 1: Networking Core</b></summary>
+
+* Implementasi `VpnService` lokal untuk intersepsi Port 53.
+* Pengembangan DNS Parser untuk pembacaan query UDP real-time.
+</details>
+
+<details>
+<summary><b>Fase 2: Application Intelligence</b></summary>
+
+* Scanner heuristik untuk deteksi pola perizinan agresif.
+* Implementasi `ConnectivityManager` & `/proc/net/` untuk identifikasi UID pengirim trafik.
+</details>
+
+<details>
+<summary><b>Fase 3: Performance & UX</b></summary>
+
+* Migrasi ke **HashSet Engine** untuk lookup domain instan.
+* Implementasi desain **Material 3** dengan hirarki informasi yang bersih.
+</details>
+
+<details>
+<summary><b>Fase 4: Real-time Streaming</b></summary>
+
+* Arsitektur **EventChannel** untuk aliran data Native Kotlin ke Flutter.
+* Sistem notifikasi latar depan sesuai standar API Android terbaru.
+</details>
+
+<details>
+<summary><b>Fase 5: Modularitas & High-Performance</b></summary>
+
+* **Clean Modular Architecture** untuk skalabilitas jangka panjang.
+* **Isolate-Based Processing** guna menjaga performa UI tetap stabil di 60 FPS.
+* **Native Scaling Engine** untuk efisiensi manajemen memori bitmap.
+</details>
 
 ---
 
-## 🔐 Privasi Tanpa Kompromi
+## 🔐 Privacy & Data Handling
 
-ZeroAd dirancang dengan prinsip **Local-First**. Tidak ada data penggunaan, daftar aplikasi, atau riwayat DNS Anda yang dikirim ke server mana pun. Seluruh proses pemindaian dan pemblokiran terjadi 100% di dalam perangkat Anda.
+> [!IMPORTANT]
+> Keamanan data pengguna adalah prinsip operasional utama ZeroAd.
+
+* **Local-First Processing:** Seluruh inspeksi trafik DNS dilakukan 100% di perangkat. Tidak ada data yang dikirim ke server eksternal.
+* **Zero Logging Policy:** Tidak ada penyimpanan riwayat penjelajahan atau daftar aplikasi secara permanen.
+* **No External Rerouting:** Trafik internet utama tidak melalui perantara, menjamin data terenkripsi (HTTPS) tidak dapat diakses oleh sistem.
 
 ---
 
 <div align="center">
-Didesain dengan ❤️ untuk keamanan maksimal oleh <a href="https://github.com/initHD3v">initHD3v</a>
+Developed with focus on performance and privacy by <a href="https://github.com/initHD3v">initHD3v</a>
 </div>
