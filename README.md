@@ -56,6 +56,29 @@ Evolusi ZeroAd dibangun dengan fokus pada keseimbangan antara keamanan ketat, pe
 
 ---
 
+## 🔍 Mekanisme Kerja (Technical Workflow)
+
+ZeroAd bekerja secara lokal dengan menggabungkan dua lapis pertahanan: **Static Analysis** (Scanner) dan **Dynamic Traffic Filtering** (Shield).
+
+### **1. Deep Adware Scanning**
+Proses ini mendeteksi potensi ancaman sebelum mereka beraksi:
+*   **Manifest Heuristics:** Sistem membedah berkas `AndroidManifest.xml` setiap aplikasi untuk mendeteksi kombinasi perizinan berbahaya, seperti aplikasi yang bisa menggambar di atas aplikasi lain (*Overlay*) sekaligus berjalan otomatis saat *boot*.
+*   **SDK Signature Matching:** Mencocokkan komponen internal aplikasi (Activity, Service, Receiver) dengan database signature SDK iklan pihak ketiga yang dikenal agresif.
+*   **Scoring System:** Memberikan penilaian risiko (ZeroScore) berdasarkan akumulasi temuan ancaman.
+
+### **2. Global DNS Shield (AdBlock)**
+Pertahanan jaringan real-time tanpa memengaruhi kecepatan internet ISP:
+*   **VpnService Interception:** ZeroAd menciptakan terowongan VPN lokal yang khusus mencegat trafik **Port 53 (DNS)**. Paket data lainnya tetap mengalir langsung ke internet (Zero Latency).
+*   **Fast HashSet Lookup:** Setiap domain yang dipanggil oleh aplikasi akan diperiksa dalam database blokir berbasis `HashSet`. Proses ini dilakukan dalam waktu mikrodetik dengan kompleksitas algoritma **O(1)**.
+*   **NXDOMAIN Response:** Jika domain terdeteksi sebagai iklan/tracker, ZeroAd akan mengirimkan respon palsu "Domain Tidak Ditemukan" (*NXDOMAIN*) ke aplikasi peminta, sehingga konten iklan tidak pernah terunduh.
+
+### **3. Smart Whitelisting & Bypass**
+Logika cerdas untuk memastikan aplikasi terpercaya tidak terganggu:
+*   **Dynamic Split-Tunneling:** Saat aplikasi dimasukkan ke *Whitelist*, ZeroAd akan menginstruksikan kernel Android untuk membebaskan aplikasi tersebut dari terowongan VPN (*Disallowed Application*), memberikan akses internet 100% tanpa filter.
+*   **Reverse Domain Mapping:** Untuk aplikasi yang menggunakan proksi sistem (seperti Shopee), ZeroAd menggunakan logika heuristik untuk membedah domain yang dipanggil dan mengatribusikannya kembali ke aplikasi asal secara akurat di tab *Live Activity*.
+
+---
+
 ## 🛠️ Arsitektur Teknologi
 
 *   **Frontend:** Flutter (Dart) - Modular Clean Architecture.
