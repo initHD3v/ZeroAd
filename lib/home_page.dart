@@ -18,6 +18,7 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateMixin {
   static const MethodChannel _platform = MethodChannel('zeroad.security/scanner');
+  static const EventChannel _stream = EventChannel('zeroad.security/stream');
   
   // -- Localization --
   late AppLocalizations l10n;
@@ -33,7 +34,8 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   // -- AdBlock State --
   bool _isAdBlockActive = false;
   List<String> _vpnLogs = []; // List to store activity logs
-  Timer? _logTimer;
+  List<String> _trustedPackages = []; // List of packages in whitelist
+  StreamSubscription? _logSubscription;
   String _logFilter = 'ALL'; // ALL, ADS
 
   // -- Animation State --
@@ -43,8 +45,9 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
+    _requestNotifPermission();
     _loadAdBlockStatus();
-    _startLogSync(); // Start syncing logs
+    _initStream(); // Start streaming logs
 
     // Delay scan to prevent blocking UI during startup
     Future.delayed(const Duration(milliseconds: 800), () {
@@ -72,34 +75,23 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
 
   @override
   void dispose() {
-    _logTimer?.cancel();
+    _logSubscription?.cancel();
     _breathingController.dispose();
     super.dispose();
   }
 
-  void _startLogSync() {
-    _logTimer?.cancel();
-    _logTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_isAdBlockActive) {
-        _fetchLogs();
-      }
-    });
-  }
-
-  Future<void> _fetchLogs() async {
-    try {
-      final List<dynamic> newLogs = await _platform.invokeMethod('getVpnLogs');
-      if (newLogs.isNotEmpty && mounted) {
+  void _initStream() {
+    _logSubscription?.cancel();
+    _logSubscription = _stream.receiveBroadcastStream().listen((log) {
+      if (mounted) {
         setState(() {
-          _vpnLogs = [...newLogs.map((e) => e.toString()), ..._vpnLogs];
-          if (_vpnLogs.length > 100) { 
-            _vpnLogs = _vpnLogs.sublist(0, 100);
+          _vpnLogs.insert(0, log.toString());
+          if (_vpnLogs.length > 200) {
+            _vpnLogs = _vpnLogs.sublist(0, 200);
           }
         });
       }
-    } catch (e) {
-      debugPrint("Error fetching logs: $e");
-    }
+    });
   }
 
   void _clearLogs() {
@@ -108,10 +100,19 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     });
   }
 
+  Future<void> _requestNotifPermission() async {
+    try {
+      await _platform.invokeMethod('requestNotificationPermission');
+    } catch (e) {
+      debugPrint("Error requesting notif permission: $e");
+    }
+  }
+
   Future<void> _loadAdBlockStatus() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _isAdBlockActive = prefs.getBool('adblock_active') ?? false;
+      _trustedPackages = prefs.getStringList('whitelisted_apps') ?? [];
       if (_isAdBlockActive) {
         _breathingController.repeat(reverse: true);
       }
@@ -546,15 +547,50 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
 
   Future<void> _addToWhitelist(String packageName) async {
     try {
-      await _platform.invokeMethod('addToWhitelist', {'packageName': packageName});
-      if (mounted) {
+      final success = await _platform.invokeMethod('addToWhitelist', {'packageName': packageName});
+      if (success == true && mounted) {
+        setState(() {
+          if (!_trustedPackages.contains(packageName)) {
+            _trustedPackages.add(packageName);
+          }
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("App '$packageName' whitelisted successfully.")),
+          SnackBar(content: Text("App '$packageName' is now trusted.")),
         );
-        Navigator.pop(context); // Close detail sheet
+        if (Navigator.canPop(context)) Navigator.pop(context);
       }
     } on PlatformException catch (e) {
       debugPrint("Error whitelisting: $e");
+    }
+  }
+
+  Future<void> _removeFromWhitelist(String packageName) async {
+    try {
+      final success = await _platform.invokeMethod('removeFromWhitelist', {'packageName': packageName});
+      if (success == true && mounted) {
+        setState(() {
+          _trustedPackages.remove(packageName);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Protection restored for '$packageName'.")),
+        );
+      }
+    } on PlatformException catch (e) {
+      debugPrint("Error removing from whitelist: $e");
+    }
+  }
+
+  Future<void> _addDomainToWhitelist(String domain) async {
+    try {
+      await _platform.invokeMethod('addDomainToWhitelist', {'domain': domain});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Domain '$domain' allowed successfully.")),
+        );
+        Navigator.pop(context);
+      }
+    } on PlatformException catch (e) {
+      debugPrint("Error whitelisting domain: $e");
     }
   }
 
@@ -569,79 +605,111 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
     final packageName = parts.length > 4 ? parts[4] : 'Unknown';
     final appName = parts.length > 5 ? parts[5] : 'Unknown App';
 
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.5,
-        minChildSize: 0.3,
-        maxChildSize: 0.95,
-        builder: (context, scrollController) => Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          padding: const EdgeInsets.all(24.0),
-          child: ListView(
-            controller: scrollController,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withAlpha(100),
-                    borderRadius: BorderRadius.circular(2),
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        contentPadding: const EdgeInsets.all(20),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: status == 'BLOCKED' ? Colors.red.withAlpha(30) : Colors.green.withAlpha(30),
+                  child: Icon(
+                    status == 'BLOCKED' ? Icons.block_flipped : Icons.check_circle_outline,
+                    color: status == 'BLOCKED' ? Colors.red : Colors.green,
                   ),
                 ),
-              ),
-              Row(
-                children: [
-                  Icon(Icons.security, color: Theme.of(context).colorScheme.primary),
-                  const SizedBox(width: 12),
-                  const Text("Traffic Detail", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              const Divider(height: 32),
-              _buildDetailRow("Source App", appName),
-              _buildDetailRow("Package", packageName),
-              _buildDetailRow("Domain", domain),
-              _buildDetailRow("Category", _getFriendlyCategory(category)),
-              _buildDetailRow("Status", status),
-              _buildDetailRow("Time", time.toString()),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: rawLog));
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Log Copied!")));
-                      },
-                      icon: const Icon(Icons.copy),
-                      label: const Text("Copy"),
-                    ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(appName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text(status, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: status == 'BLOCKED' ? Colors.red : Colors.green)),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  if (status == 'BLOCKED')
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => _addToWhitelist(packageName),
-                        icon: const Icon(Icons.check_circle_outline),
-                        label: const Text("Allow App"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    ),
+                ),
+              ],
+            ),
+            const Divider(height: 32),
+            // Info
+            _buildMinimalDetail("Link", domain),
+            _buildMinimalDetail("Time", "${time.hour}:${time.minute}:${time.second}"),
+            const SizedBox(height: 20),
+            
+            if (status == 'BLOCKED') ...[
+              Text(l10n.fixIssue, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 12),
+              // Option 1: Trust App (Recommended)
+              _buildActionCard(
+                icon: Icons.verified_user_rounded,
+                title: l10n.trustApp,
+                subtitle: l10n.trustAppDesc,
+                color: Colors.green,
+                onTap: () => _addToWhitelist(packageName),
+              ),
+              const SizedBox(height: 8),
+              // Option 2: Trust Domain
+              _buildActionCard(
+                icon: Icons.link_rounded,
+                title: l10n.trustDomain,
+                subtitle: l10n.trustDomainDesc,
+                color: Colors.blue,
+                onTap: () => _addDomainToWhitelist(domain),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(l10n.closeBtn)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMinimalDetail(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 60, child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold))),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionCard({required IconData icon, required String title, required String subtitle, required Color color, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          border: Border.all(color: color.withAlpha(50)),
+          borderRadius: BorderRadius.circular(16),
+          color: color.withAlpha(10),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color)),
+                  Text(subtitle, style: TextStyle(fontSize: 11, color: color.withAlpha(200))),
                 ],
               ),
-              const SizedBox(height: 20),
-            ],
-          ),
+            ),
+            Icon(Icons.chevron_right, color: color, size: 16),
+          ],
         ),
       ),
     );
@@ -771,6 +839,36 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
   }
 
   Widget _buildActivityView() {
+    return DefaultTabController(
+      length: 2,
+      child: Column(
+        children: [
+          Container(
+            color: Theme.of(context).colorScheme.surface,
+            child: TabBar(
+              labelColor: Theme.of(context).colorScheme.primary,
+              unselectedLabelColor: Colors.grey,
+              indicatorColor: Theme.of(context).colorScheme.primary,
+              tabs: [
+                Tab(text: l10n.trafficSubTab),
+                Tab(text: l10n.trustedSubTab),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _buildTrafficTab(),
+                _buildTrustedTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTrafficTab() {
     final colorScheme = Theme.of(context).colorScheme;
     
     // 1. Filter Logs
@@ -779,12 +877,12 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
       final parts = log.split('|');
       if (parts.length < 3) return false;
       final category = parts[2];
-      return category == 'AD_CONTENT' || category == 'TRACKER';
+      return category == 'AD_CONTENT' || category == 'TRACKER' || category == 'APP_WHITELISTED';
     }).toList();
 
     // 2. Group by PackageName
     final Map<String, List<String>> groupedLogs = {};
-    final Map<String, String> appNames = {}; // Cache app names
+    final Map<String, String> appNames = {};
 
     for (var log in filteredLogs) {
       final parts = log.split('|');
@@ -804,38 +902,21 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
 
     return Column(
       children: [
+        // Minimalist Header
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          color: colorScheme.surfaceContainer,
-          child: Column(
+          color: colorScheme.surfaceContainerLow,
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(l10n.blockedRequests, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                        const Text("True Core Packet Filter v6.0", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      ],
-                    ),
-                  ),
-                  if (_vpnLogs.isNotEmpty)
-                    IconButton(
-                      onPressed: _clearLogs,
-                      icon: const Icon(Icons.delete_sweep_outlined),
-                      color: colorScheme.error,
-                      tooltip: l10n.clearBtn,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  _buildFilterChip("ALL APPS", 'ALL'),
-                  const SizedBox(width: 8),
-                  _buildFilterChip("BLOCKED ONLY", 'ADS'),
-                ],
+              _buildFilterChip("ALL APPS", 'ALL'),
+              const SizedBox(width: 8),
+              _buildFilterChip("THREATS ONLY", 'ADS'),
+              const Spacer(),
+              IconButton(
+                onPressed: _clearLogs,
+                icon: const Icon(Icons.refresh_rounded), 
+                color: colorScheme.primary,
+                tooltip: "Refresh Live Activity",
               ),
             ],
           ),
@@ -859,7 +940,12 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                   final packageName = sortedKeys[index];
                   final logs = groupedLogs[packageName]!;
                   final appName = appNames[packageName] ?? "Unknown App";
+                  
+                  final isSystem = packageName == "com.android.system" || packageName.startsWith("system.uid");
                   final blockedCount = logs.where((l) => l.contains('|BLOCKED|') || l.contains('AD_CONTENT')).length;
+                  final isTrusted = _trustedPackages.contains(packageName);
+
+                  if (isTrusted) return const SizedBox(); 
 
                   return Card(
                     margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -872,14 +958,21 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                       onTap: () => _showAppDetails(appName, packageName, logs),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                       leading: CircleAvatar(
-                        backgroundColor: colorScheme.primaryContainer,
-                        child: Text(
-                          appName.isNotEmpty ? appName[0].toUpperCase() : "?",
-                          style: TextStyle(fontWeight: FontWeight.bold, color: colorScheme.primary),
+                        backgroundColor: isSystem ? colorScheme.secondaryContainer : colorScheme.primaryContainer,
+                        child: Icon(
+                          isSystem ? Icons.settings_suggest_rounded : Icons.apps_rounded,
+                          color: isSystem ? colorScheme.onSecondaryContainer : colorScheme.primary,
+                          size: 20,
                         ),
                       ),
-                      title: Text(appName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text("$packageName • ${logs.length} requests", style: const TextStyle(fontSize: 12)),
+                      title: Text(
+                        isSystem ? "Layanan Sistem" : appName, 
+                        style: const TextStyle(fontWeight: FontWeight.bold)
+                      ),
+                      subtitle: Text(
+                        isSystem ? "Identifikasi otomatis Android" : "$packageName", 
+                        style: const TextStyle(fontSize: 11)
+                      ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -906,6 +999,48 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
         ),
       ],
     );
+  }
+
+  Widget _buildTrustedTab() {
+    return _trustedPackages.isEmpty 
+      ? Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.verified_user_outlined, size: 64, color: Theme.of(context).colorScheme.outline.withAlpha(80)),
+              const SizedBox(height: 16),
+              Text(l10n.isId ? "Belum ada aplikasi terpercaya" : "No trusted apps yet", style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+            ],
+          ),
+        )
+      : ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: _trustedPackages.length,
+          itemBuilder: (context, index) {
+            final pkg = _trustedPackages[index];
+            return Card(
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.blue.withAlpha(50)),
+              ),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.blue.withAlpha(20),
+                  child: const Icon(Icons.verified_user_rounded, color: Colors.blue, size: 20),
+                ),
+                title: Text(pkg, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                subtitle: Text(l10n.isId ? "Akses Internet Langsung" : "Direct Internet Access", style: const TextStyle(fontSize: 11)),
+                trailing: IconButton(
+                  icon: const Icon(Icons.block_rounded, color: Colors.red),
+                  onPressed: () => _removeFromWhitelist(pkg),
+                  tooltip: "Block Ads Again",
+                ),
+              ),
+            );
+          },
+        );
   }
 
   Widget _buildFilterChip(String label, String value) {

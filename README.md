@@ -6,64 +6,63 @@
 
 **Advanced Adware Detection & Global DNS Shield for Android**
 
-ZeroAd adalah aplikasi keamanan Android yang dirancang untuk memberikan perlindungan komprehensif terhadap gangguan adware dan pelacakan data. Dengan menggabungkan pemindaian heuristik mendalam (Deep Scan) dan sistem pertahanan jaringan berbasis DNS, ZeroAd memastikan perangkat Anda tetap bersih, cepat, dan privat tanpa memerlukan akses Root.
+ZeroAd adalah solusi keamanan Android yang dirancang untuk melindungi privasi pengguna dari gangguan adware dan pelacakan data tanpa memerlukan akses Root. Aplikasi ini menggabungkan teknik pemindaian manifest aplikasi yang mendalam dengan pertahanan jaringan berbasis DNS yang sangat efisien.
 
-[Laporkan Bug](https://github.com/initHD3v/ZeroAd/issues) · [Ajukan Fitur](https://github.com/initHD3v/ZeroAd/issues)
+[Laporkan Masalah](https://github.com/initHD3v/ZeroAd/issues) · [Ajukan Fitur](https://github.com/initHD3v/ZeroAd/issues)
 
 </div>
 
 ---
 
-## 🚀 Update Terbaru (Februari 2026)
+## 🚀 Perjalanan Pengembangan (Roadmap)
 
-Kami terus meningkatkan efisiensi dan akurasi deteksi. Berikut adalah pembaharuan signifikan pada versi terbaru:
+Sejak awal dibangun, ZeroAd telah melalui berbagai tahap optimasi untuk memastikan keseimbangan antara keamanan ketat dan kenyamanan pengguna. Berikut adalah sejarah evolusi sistem kami:
 
-*   **Identifikasi Aplikasi per Paket (Per-App Attribution):** Berbeda dengan filter DNS standar, ZeroAd kini mampu mendeteksi aplikasi spesifik mana yang melakukan pemanggilan domain iklan. Hal ini dicapai melalui integrasi `ConnectivityManager` untuk Android modern dan fallback `/proc/net` untuk perangkat lama.
-*   **Smart DNS Failover:** Mengatasi masalah "No Internet" yang sering terjadi pada layanan VPN. Jika server DNS utama (seperti Google DNS) diblokir oleh ISP lokal, ZeroAd akan secara otomatis mengalihkan permintaan ke Cloudflare (1.1.1.1) atau Quad9 secara instan.
-*   **Hierarki Live Activity:** Antarmuka pemantauan kini dikelompokkan berdasarkan aplikasi. Anda dapat melihat aplikasi mana yang paling banyak mengirimkan iklan, lalu masuk ke detail untuk melihat domain spesifik yang diblokir.
-*   **Sistem Whitelist Aplikasi:** Pengguna kini memiliki kendali penuh untuk mengecualikan aplikasi tertentu dari filter iklan jika diperlukan, langsung dari layar pemantauan aktivitas.
+### **Fase 1: Fondasi & Konsep Jaringan**
+*   **VpnService Core:** Implementasi dasar terowongan VPN untuk mencegat trafik DNS (Port 53).
+*   **Simple DNS Parser:** Mesin ringan untuk membongkar dan membaca domain dari paket jaringan.
+*   **Hardcoded Filters:** Daftar blokir awal yang ditanam langsung di dalam kode untuk pengujian konsep.
+
+### **Fase 2: Intelegensi & Deteksi Aplikasi**
+*   **Manifest Heuristics:** Scanner ditingkatkan untuk mendeteksi pola perizinan yang sering disalahgunakan oleh adware (seperti *Boot Overlay* dan *Accessibility Abuse*).
+*   **Per-App Identification:** Implementasi API `ConnectivityManager` untuk mengetahui aplikasi spesifik mana yang memicu iklan secara real-time.
+*   **System Awareness:** Penambahan sistem pengecualian cerdas agar aplikasi inti sistem (seperti Google Play Services) tidak dianggap sebagai ancaman.
+
+### **Fase 3: Optimasi Performa & UX Premium**
+*   **HashSet Engine:** Migrasi daftar blokir ke struktur data `HashSet` untuk memastikan pemindaian ribuan domain dilakukan dalam waktu mikrodetik (O(1)).
+*   **Material 3 UI:** Perombakan antarmuka menggunakan standar desain terbaru, termasuk efek gradien dinamis dan hirarki informasi yang lebih bersih.
+*   **JSON-Based Database:** Memisahkan data (database iklan & signature) dari logika program menggunakan file eksternal di folder `assets`.
+
+### **Fase 4: Stabilitas & Real-time (Status Saat Ini)**
+*   **EventChannel Streaming:** Mengganti sistem *polling* yang boros baterai dengan aliran data real-time dari Native ke Flutter.
+*   **Dynamic Bypass (Jalur Tol):** Implementasi *Split Tunneling* dinamis untuk aplikasi terpercaya (seperti Shopee atau TikTok) guna mendapatkan kecepatan internet 100% asli ISP.
+*   **Smart Notification:** Sistem notifikasi latar depan yang informatif, menampilkan jumlah blokir tanpa mengganggu aktivitas pengguna.
+*   **Android 14/15 Ready:** Kepatuhan penuh terhadap aturan keamanan terbaru Google terkait *Foreground Service Types*.
 
 ---
 
-## ✨ Fitur Utama
+## ✨ Fitur Unggulan
 
-### 🛡️ Deep Scan Engine
-Mesin pemindai yang bekerja dengan menganalisis manifes dan pola perilaku aplikasi untuk menemukan potensi ancaman yang sering lolos dari antivirus konvensional:
-*   **Stealth Installer:** Deteksi aplikasi yang memiliki izin untuk menginstal paket lain secara diam-diam.
-*   **Boot Overlay Patterns:** Mengidentifikasi aplikasi yang memaksa tampil di layar (popup) segera setelah perangkat dinyalakan.
-*   **Privacy Miner:** Menandai aplikasi utilitas sederhana (seperti senter atau editor foto) yang meminta akses tidak wajar ke SMS dan log panggilan.
-
-### ⚡ Enhanced Network Shield
-Melindungi seluruh perangkat melalui sinkhole DNS lokal yang efisien:
-*   **Smart Split Tunneling:** Menghemat baterai dan menjaga kecepatan dengan hanya memproses trafik DNS. Aplikasi berat seperti YouTube, WhatsApp, dan Game tetap berjalan di jalur internet asli tanpa lag.
-*   **Blokade IPv6:** Menutup celah iklan yang seringkali masuk melalui jalur jaringan modern (IPv6).
-*   **Sistem Label Manusiawi:** Menghilangkan kode teknis yang membingungkan dan menggantinya dengan informasi yang mudah dimengerti oleh pengguna awam.
+*   🛡️ **Deep Scanner:** Membedah aplikasi hingga ke level Activity dan Service untuk menemukan SDK iklan tersembunyi.
+*   ⚡ **Smart Shield:** Melindungi seluruh perangkat dari iklan dengan konsumsi baterai yang sangat minim.
+*   ✅ **Fuzzy Whitelist:** Memungkinkan pengguna memberikan izin pada aplikasi tertentu dengan satu klik, termasuk dukungan otomatis untuk anak proses (*sub-processes*).
+*   🌐 **DNS Failover:** Otomatis beralih ke Cloudflare atau Quad9 jika Google DNS diblokir oleh ISP, menjamin internet tidak pernah mati.
 
 ---
 
-## 📸 Antarmuka Aplikasi
+## 📸 Antarmuka Terbaru
 
 <div align="center">
   <table style="width:100%">
     <tr>
-      <td align="center"><b>Scanner</b></td>
-      <td align="center"><b>Network Shield</b></td>
-      <td align="center"><b>Live Activity</b></td>
+      <td align="center"><b>Dashboard Scanner</b></td>
+      <td align="center"><b>Sub-Tab Activity</b></td>
+      <td align="center"><b>Smart Notification</b></td>
     </tr>
     <tr>
       <td><img src="uix/Screenshot_20260202-191539.png" width="250"></td>
-      <td><img src="uix/Screenshot_20260202-191545.png" width="250"></td>
       <td><img src="uix/Screenshot_20260202-191550.png" width="250"></td>
-    </tr>
-    <tr>
-      <td align="center"><b>Risk Classification</b></td>
-      <td align="center"><b>Deep Risk Analysis</b></td>
-      <td></td>
-    </tr>
-    <tr>
-      <td><img src="uix/Screenshot_20260202-191559.png" width="250"></td>
-      <td><img src="uix/Screenshot_20260202-191641.png" width="250"></td>
-      <td></td>
+      <td><img src="uix/Screenshot_20260202-191545.png" width="250"></td>
     </tr>
   </table>
 </div>
@@ -72,21 +71,19 @@ Melindungi seluruh perangkat melalui sinkhole DNS lokal yang efisien:
 
 ## 🛠️ Arsitektur Teknologi
 
-*   **Frontend:** Flutter (Dart) untuk antarmuka yang responsif dan dukungan multi-bahasa.
-*   **Backend Core:** Kotlin Native yang berinteraksi langsung dengan `VpnService` Android untuk performa tinggi.
-*   **Security:** Implementasi SELinux-compliant API untuk deteksi pemilik koneksi pada Android 10+.
+*   **Frontend:** Flutter (Dart) - Mengelola UI, state, dan logika visual.
+*   **Backend:** Kotlin Native - Berinteraksi dengan kernel Android dan `VpnService`.
+*   **Communication:** `MethodChannel` untuk aksi satu arah dan `EventChannel` untuk streaming data real-time.
+*   **Storage:** `SharedPreferences` dengan sinkronisasi instan via `commit()`.
 
 ---
 
-## 🔐 Keamanan & Privasi
+## 🔐 Privasi Tanpa Kompromi
 
-Privasi adalah pondasi utama ZeroAd:
-*   **Local-First Processing:** Semua data pemindaian dan log DNS diproses 100% di dalam perangkat Anda. Tidak ada data yang dikirim ke server eksternal.
-*   **No Data Mining:** ZeroAd tidak mengumpulkan riwayat pencarian atau data penggunaan aplikasi Anda.
-*   **Open Architecture:** Dirancang untuk bekerja dalam batasan sandbox Android demi keamanan sistem yang maksimal.
+ZeroAd dirancang dengan prinsip **Local-First**. Tidak ada data penggunaan, daftar aplikasi, atau riwayat DNS Anda yang dikirim ke server mana pun. Keamanan Anda adalah privasi Anda.
 
 ---
 
 <div align="center">
-Didesain untuk keamanan maksimal oleh <a href="https://github.com/initHD3v">initHD3v</a>
+Didesain dengan ❤️ untuk keamanan maksimal oleh <a href="https://github.com/initHD3v">initHD3v</a>
 </div>

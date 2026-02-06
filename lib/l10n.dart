@@ -16,6 +16,10 @@ class AppLocalizations {
   String get scannerTab => isId ? "Pemindai" : "Scanner";
   String get shieldTab => isId ? "Perisai" : "Shield";
   String get activityTab => isId ? "Aktivitas" : "Activity";
+  
+  // --- ACTIVITY SUB-TABS ---
+  String get trafficSubTab => isId ? "Lalu Lintas" : "Traffic";
+  String get trustedSubTab => isId ? "Aplikasi Terpercaya" : "Trusted Apps";
 
   // --- SCANNER TAB ---
   String get scanTitle => isId ? "Pemindai Adware" : "Adware Scanner";
@@ -60,6 +64,11 @@ class AppLocalizations {
     ? "ZeroAd adalah solusi keamanan Android modern yang menggabungkan deteksi adware mendalam dengan pemblokiran iklan berbasis DNS." 
     : "ZeroAd is a modern Android security solution combining deep adware detection with DNS-based ad blocking.";
   String get closeBtn => isId ? "Tutup" : "Close";
+  String get trustApp => isId ? "Percayai Aplikasi Ini" : "Trust this App";
+  String get trustDomain => isId ? "Buka Blokir Tautan" : "Unblock this Link";
+  String get trustAppDesc => isId ? "Izinkan semua aktivitas dari aplikasi ini." : "Allow all activities from this app.";
+  String get trustDomainDesc => isId ? "Hanya izinkan alamat spesifik ini." : "Only allow this specific address.";
+  String get fixIssue => isId ? "Aplikasi Bermasalah?" : "App not working?";
 
   // --- DETAIL PAGE ---
   String get securityDetails => isId ? "Detail Keamanan" : "Security Details";
