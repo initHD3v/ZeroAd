@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:zeroad/home_page.dart'; 
+import 'package:zeroad/logic/security_provider.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => SecurityProvider()..init(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -16,16 +23,20 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'ZeroAd',
       themeMode: ThemeMode.system,
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
         colorSchemeSeed: seedColor,
-        // Using default system font to stop typeface log spam
+        fontFamily: '', // Forced empty to bypass OEM font injection
+        typography: Typography.material2021(), // Explicit typography set
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
         colorSchemeSeed: seedColor,
+        fontFamily: '', // Forced empty to bypass OEM font injection
+        typography: Typography.material2021(),
       ),
       home: const MyHomePage(title: 'ZeroAd'),
     );

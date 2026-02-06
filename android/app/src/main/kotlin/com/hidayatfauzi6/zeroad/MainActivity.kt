@@ -106,6 +106,7 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "scan" -> {
+                    android.util.Log.e("ZeroAd_CRITICAL", "--- NATIVE SCAN STARTED ---")
                     CoroutineScope(Dispatchers.IO).launch {
                         val packageManager: PackageManager = applicationContext.packageManager
                         val installedApps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
@@ -219,6 +220,54 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "getVpnLogs" -> result.success(AdBlockVpnService.getLogs())
+
+                "getAppIcon" -> {
+                    val packageName = call.argument<String>("packageName")
+                    if (packageName != null) {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                val drawable = packageManager.getApplicationIcon(packageName)
+                                val targetSize = 120 // Optimized size for 40-50dp icons (3x density)
+                                
+                                val bitmap = android.graphics.Bitmap.createBitmap(targetSize, targetSize, android.graphics.Bitmap.Config.ARGB_8888)
+                                val canvas = android.graphics.Canvas(bitmap)
+                                drawable.setBounds(0, 0, targetSize, targetSize)
+                                drawable.draw(canvas)
+                                
+                                val stream = java.io.ByteArrayOutputStream()
+                                // Use WEBP_LOSSLESS if available (Android 30+) for better compression, else PNG
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    bitmap.compress(android.graphics.Bitmap.CompressFormat.WEBP_LOSSLESS, 100, stream)
+                                } else {
+                                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 80, stream)
+                                }
+                                val byteArray = stream.toByteArray()
+                                bitmap.recycle() // Immediate memory cleanup
+                                
+                                withContext(Dispatchers.Main) {
+                                    result.success(byteArray)
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    result.error("ICON_ERROR", e.message, null)
+                                }
+                            }
+                        }
+                    } else result.error("ERROR", "Null package", null)
+                }
+
+                "getAppLabel" -> {
+                    val packageName = call.argument<String>("packageName")
+                    if (packageName != null) {
+                        try {
+                            val appInfo = packageManager.getApplicationInfo(packageName, 0)
+                            val label = packageManager.getApplicationLabel(appInfo).toString()
+                            result.success(label)
+                        } catch (e: Exception) {
+                            result.success(packageName) // Fallback to package name
+                        }
+                    } else result.error("ERROR", "Null package", null)
+                }
 
                 "addToWhitelist" -> {
                     val packageName = call.argument<String>("packageName")
