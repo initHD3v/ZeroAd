@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zeroad/models.dart';
+import 'package:zeroad/logic/blocklist_service.dart';
 
 /// Helper function for compute (must be top-level or static)
 /// Memindahkan pengolahan data JSON yang berat ke Isolate terpisah.
@@ -39,6 +40,13 @@ class SecurityProvider with ChangeNotifier {
   bool _isScanning = false;
   String _logFilter = 'ALL';
 
+  // Dynamic Blocklist State
+  final BlocklistService _blocklistService = BlocklistService();
+  int _blockedDomainsCount = 0;
+  int _autoWhitelistedCount = 0;
+  DateTime? _lastBlocklistUpdate;
+  bool _isUpdatingBlocklist = false;
+
   // -- Getters --
   bool get isAdBlockActive => _isAdBlockActive;
   List<String> get vpnLogs => _vpnLogs;
@@ -46,6 +54,11 @@ class SecurityProvider with ChangeNotifier {
   ScanResultModel? get lastScanResult => _lastScanResult;
   bool get isScanning => _isScanning;
   String get logFilter => _logFilter;
+  
+  int get blockedDomainsCount => _blockedDomainsCount;
+  int get autoWhitelistedCount => _autoWhitelistedCount;
+  DateTime? get lastBlocklistUpdate => _lastBlocklistUpdate;
+  bool get isUpdatingBlocklist => _isUpdatingBlocklist;
 
   StreamSubscription? _nativeSub;
 
@@ -57,6 +70,14 @@ class SecurityProvider with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _isAdBlockActive = prefs.getBool('adblock_active') ?? false;
     _trustedPackages = prefs.getStringList('whitelisted_apps') ?? [];
+    
+    // Load blocklist info
+    _blockedDomainsCount = await _blocklistService.getBlocklistCount();
+    _autoWhitelistedCount = await _blocklistService.getWhitelistCount();
+    final lastUpdate = prefs.getInt('last_blocklist_update');
+    if (lastUpdate != null) {
+      _lastBlocklistUpdate = DateTime.fromMillisecondsSinceEpoch(lastUpdate);
+    }
     
     _nativeSub?.cancel();
     _nativeSub = _stream.receiveBroadcastStream().listen((log) {
@@ -97,6 +118,33 @@ class SecurityProvider with ChangeNotifier {
   }
 
   // --- VPN Actions ---
+
+  Future<void> updateDynamicBlocklist() async {
+    if (_isUpdatingBlocklist) return;
+    _isUpdatingBlocklist = true;
+    notifyListeners();
+
+    try {
+      final success = await _blocklistService.updateBlocklist();
+      if (success) {
+        final path = await _blocklistService.getActiveBlocklistPath();
+        if (path != null) {
+          // Kirim path ke native
+          await _platform.invokeMethod('updateBlocklistPath', {'path': path});
+          
+          // Update local state
+          _blockedDomainsCount = await _blocklistService.getBlocklistCount();
+          _autoWhitelistedCount = await _blocklistService.getWhitelistCount();
+          _lastBlocklistUpdate = DateTime.now();
+        }
+      }
+    } catch (e) {
+      debugPrint("Blocklist Update Failed: $e");
+    } finally {
+      _isUpdatingBlocklist = false;
+      notifyListeners();
+    }
+  }
 
   Future<void> toggleAdBlock() async {
     try {

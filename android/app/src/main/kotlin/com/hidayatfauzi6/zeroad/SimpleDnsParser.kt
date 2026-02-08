@@ -92,6 +92,55 @@ object SimpleDnsParser {
         return raw
     }
 
+    // Membuat respon "A Record" dengan IP 0.0.0.0
+    // Ini lebih baik daripada NXDOMAIN karena menipu aplikasi agar menganggap internet ada
+    fun createNullIpResponse(request: ByteBuffer): ByteArray {
+        val ipHeaderLen = (request.get(0).toInt() and 0x0F) * 4
+        val dnsStart = ipHeaderLen + 8
+        
+        // Ambil DNS Payload asli untuk mengekstrak ID dan Question
+        val requestArray = request.array().copyOf(request.limit())
+        val dnsId = requestArray[dnsStart].toInt() and 0xFF shl 8 or (requestArray[dnsStart + 1].toInt() and 0xFF)
+        
+        // Cari akhir dari Question Section (biasanya setelah domain name + 4 bytes untuk Type & Class)
+        var pos = dnsStart + 12
+        while (pos < requestArray.size && requestArray[pos].toInt() != 0) {
+            val len = requestArray[pos].toInt() and 0xFF
+            if ((len and 0xC0) == 0xC0) { pos += 2; break }
+            pos += len + 1
+        }
+        if (pos < requestArray.size && requestArray[pos].toInt() == 0) pos++ // Skip null terminator
+        pos += 4 // Skip Type & Class
+        
+        val questionLen = pos - dnsStart
+        
+        // Bangun DNS Response (Header + Question + Answer)
+        // Header (12) + Question + Answer (Name Pointer(2) + Type(2) + Class(2) + TTL(4) + RDLen(2) + RData(4))
+        val responsePayloadSize = 12 + (questionLen - 12) + 16
+        val resPayload = ByteBuffer.allocate(responsePayloadSize)
+        
+        // DNS Header
+        resPayload.putShort(dnsId.toShort())
+        resPayload.putShort(0x8180.toShort()) // Flags: Standard query response, No error
+        resPayload.putShort(1.toShort()) // Questions count
+        resPayload.putShort(1.toShort()) // Answer count
+        resPayload.putShort(0.toShort()) // Authority count
+        resPayload.putShort(0.toShort()) // Additional count
+        
+        // Copy Question Section
+        resPayload.put(requestArray, dnsStart + 12, questionLen - 12)
+        
+        // Answer Section
+        resPayload.putShort(0xC00C.toShort()) // Name: Pointer to domain in question
+        resPayload.putShort(1.toShort())      // Type: A
+        resPayload.putShort(1.toShort())      // Class: IN
+        resPayload.putInt(60)                 // TTL: 60 seconds
+        resPayload.putShort(4.toShort())      // RDLENGTH: 4 bytes
+        resPayload.put(byteArrayOf(0, 0, 0, 0)) // RDATA: 0.0.0.0
+        
+        return createResponsePacket(request, resPayload.array())
+    }
+
     // Membungkus respon DNS asli (dari internet) ke dalam paket IP untuk dikirim ke Game
     fun createResponsePacket(request: ByteBuffer, dnsResponsePayload: ByteArray): ByteArray {
         val ipHeaderLen = (request.get(0).toInt() and 0x0F) * 4

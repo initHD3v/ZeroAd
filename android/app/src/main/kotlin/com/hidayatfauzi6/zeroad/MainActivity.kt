@@ -28,21 +28,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Serializable
-data class Threat(
-    val type: String, 
-    val severity: String,
-    val code: String, 
-    val description: String
-)
+data class Threat(val type: String, val severity: String, val code: String, val description: String)
 
 @Serializable
-data class AppThreatInfo(
-    val packageName: String,
-    val appName: String,
-    val isSystemApp: Boolean,
-    val detectedThreats: List<Threat>,
-    val zeroScore: Int = 0
-)
+data class AppThreatInfo(val packageName: String, val appName: String, val isSystemApp: Boolean, val detectedThreats: List<Threat>, val zeroScore: Int = 0)
 
 @Serializable
 data class AdSignature(val pattern: String, val name: String)
@@ -51,11 +40,7 @@ data class AdSignature(val pattern: String, val name: String)
 data class AdSignaturesContainer(val signatures: List<AdSignature>)
 
 @Serializable
-data class ScanResultKotlin(
-    val totalInstalledPackages: Int,
-    val suspiciousPackagesCount: Int,
-    val threats: List<AppThreatInfo>
-)
+data class ScanResultKotlin(val totalInstalledPackages: Int, val suspiciousPackagesCount: Int, val threats: List<AppThreatInfo>)
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "zeroad.security/scanner"
@@ -66,7 +51,6 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         var logSink: EventChannel.EventSink? = null
-        
         fun sendLogToFlutter(log: String) {
             logSink?.let { sink ->
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -81,35 +65,27 @@ class MainActivity : FlutterActivity() {
             val jsonString = assets.open("ad_signatures.json").bufferedReader().use { it.readText() }
             val container = Json.decodeFromString<AdSignaturesContainer>(jsonString)
             container.signatures
-        } catch (e: Exception) {
-            listOf()
-        }
+        } catch (e: Exception) { listOf() }
     }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler {
-            call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "requestNotificationPermission" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIF_PERMISSION_CODE)
                             result.success(false)
-                        } else {
-                            result.success(true)
-                        }
-                    } else {
-                        result.success(true)
-                    }
+                        } else { result.success(true) }
+                    } else { result.success(true) }
                 }
 
                 "scan" -> {
-                    android.util.Log.e("ZeroAd_CRITICAL", "--- NATIVE SCAN STARTED ---")
                     CoroutineScope(Dispatchers.IO).launch {
-                        val packageManager: PackageManager = applicationContext.packageManager
-                        val installedApps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+                        val pm: PackageManager = applicationContext.packageManager
+                        val installedApps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
                         val adSignatures = loadAdSignatures()
                         val threatsDetected = mutableListOf<AppThreatInfo>()
                         var suspiciousCount = 0
@@ -117,68 +93,31 @@ class MainActivity : FlutterActivity() {
                         for (appInfo in installedApps) {
                             val detectedThreatsForApp = mutableListOf<Threat>()
                             var appZeroScore = 0
-                            val appName = packageManager.getApplicationLabel(appInfo).toString()
+                            val appName = pm.getApplicationLabel(appInfo).toString()
                             val isSystemApp = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
 
-                            fun getSeverityScore(severity: String): Int = when (severity) {
-                                "HIGH" -> 30
-                                "MEDIUM" -> 15
-                                "LOW" -> 5
-                                else -> 0
-                            }
-
                             try {
-                                val packageInfo = packageManager.getPackageInfo(appInfo.packageName, 
-                                    PackageManager.GET_PERMISSIONS or PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES)
-                                
+                                val packageInfo = pm.getPackageInfo(appInfo.packageName, PackageManager.GET_PERMISSIONS or PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES)
                                 val permissions = packageInfo.requestedPermissions?.toList() ?: listOf()
 
                                 if (permissions.contains("android.permission.REQUEST_INSTALL_PACKAGES") && !isSystemApp) {
-                                    val threat = Threat("SYSTEM_CONTROL", "HIGH", "STEALTH_INSTALLER", 
-                                        "App can install other applications without direct Play Store involvement.")
-                                    detectedThreatsForApp.add(threat)
-                                    appZeroScore += getSeverityScore(threat.severity)
+                                    detectedThreatsForApp.add(Threat("SYSTEM_CONTROL", "HIGH", "STEALTH_INSTALLER", "App can install other applications."))
+                                    appZeroScore += 30
                                 }
-
-                                if (permissions.contains("android.permission.RECEIVE_BOOT_COMPLETED") && 
-                                    permissions.contains("android.permission.SYSTEM_ALERT_WINDOW") && !isSystemApp) {
-                                    val threat = Threat("BEHAVIORAL", "HIGH", "BOOT_OVERLAY", 
-                                        "App starts at boot and can draw over other apps. Highly typical of intrusive adware.")
-                                    detectedThreatsForApp.add(threat)
-                                    appZeroScore += getSeverityScore(threat.severity)
+                                if (permissions.contains("android.permission.RECEIVE_BOOT_COMPLETED") && permissions.contains("android.permission.SYSTEM_ALERT_WINDOW") && !isSystemApp) {
+                                    detectedThreatsForApp.add(Threat("BEHAVIORAL", "HIGH", "BOOT_OVERLAY", "App starts at boot and draws over other apps."))
+                                    appZeroScore += 30
                                 }
-
-                                if (!isSystemApp && (appName.contains("Editor", ignoreCase = true) || appName.contains("Flashlight", ignoreCase = true))) {
-                                    if (permissions.contains("android.permission.READ_SMS") || permissions.contains("android.permission.READ_CALL_LOG")) {
-                                        val threat = Threat("PRIVACY", "HIGH", "PRIVACY_MINER", 
-                                            "Utility app requesting sensitive personal data (SMS/Logs) unrelated to its function.")
-                                        detectedThreatsForApp.add(threat)
-                                        appZeroScore += getSeverityScore(threat.severity)
+                                
+                                val components = mutableListOf<String>()
+                                packageInfo.activities?.forEach { components.add(it.name) }
+                                packageInfo.services?.forEach { components.add(it.name) }
+                                for (sig in adSignatures) {
+                                    if (components.any { it.contains(sig.pattern, ignoreCase = true) }) {
+                                        detectedThreatsForApp.add(Threat("AD_SDK", "MEDIUM", "AD_LIB_DETECTED", "Embedded Ad Framework: ${sig.name}"))
+                                        appZeroScore += 15; break
                                     }
                                 }
-
-                                if (permissions.contains("android.permission.BIND_ACCESSIBILITY_SERVICE") && !isSystemApp) {
-                                    val threat = Threat("PERMISSION_ABUSE", "HIGH", "ACCESSIBILITY_ABUSE", "Requests full screen reading & control.")
-                                    detectedThreatsForApp.add(threat)
-                                    appZeroScore += getSeverityScore(threat.severity)
-                                }
-
-                                if (!isSystemApp) {
-                                    val components = mutableListOf<String>()
-                                    packageInfo.activities?.forEach { components.add(it.name) }
-                                    packageInfo.services?.forEach { components.add(it.name) }
-
-                                    for (sig in adSignatures) {
-                                        if (components.any { it.contains(sig.pattern, ignoreCase = true) }) {
-                                            val threat = Threat("AD_SDK", "MEDIUM", "AD_LIB_DETECTED", 
-                                                "Embedded Ad Framework detected: ${sig.name}")
-                                            detectedThreatsForApp.add(threat)
-                                            appZeroScore += getSeverityScore(threat.severity)
-                                            break
-                                        }
-                                    }
-                                }
-
                             } catch (e: Exception) {}
 
                             if (detectedThreatsForApp.isNotEmpty()) {
@@ -186,19 +125,16 @@ class MainActivity : FlutterActivity() {
                                 if (appZeroScore >= 15) suspiciousCount++
                             }
                         }
-
                         withContext(Dispatchers.Main) {
-                            val scanResultKotlin = ScanResultKotlin(installedApps.size, suspiciousCount, threatsDetected)
-                            result.success(Json.encodeToString(scanResultKotlin))
+                            result.success(Json.encodeToString(ScanResultKotlin(installedApps.size, suspiciousCount, threatsDetected)))
                         }
                     }
                 }
 
                 "uninstallApp" -> {
-                    val packageName = call.argument<String>("packageName")
-                    if (packageName != null) {
-                        val intent = Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName"))
-                        startActivity(intent)
+                    val pkg = call.argument<String>("packageName")
+                    if (pkg != null) {
+                        startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:$pkg")))
                         result.success(true)
                     } else result.error("ERROR", "Null package", null)
                 }
@@ -209,8 +145,13 @@ class MainActivity : FlutterActivity() {
                         pendingResult = result
                         startActivityForResult(intent, VPN_REQUEST_CODE)
                     } else {
-                        startVpnService()
-                        result.success(true)
+                        CoroutineScope(Dispatchers.IO).launch {
+                            val essentialApps = getEssentialApps()
+                            withContext(Dispatchers.Main) {
+                                startVpnService(essentialApps)
+                                result.success(true)
+                            }
+                        }
                     }
                 }
 
@@ -222,111 +163,55 @@ class MainActivity : FlutterActivity() {
                 "getVpnLogs" -> result.success(AdBlockVpnService.getLogs())
 
                 "getAppIcon" -> {
-                    val packageName = call.argument<String>("packageName")
-                    if (packageName != null) {
+                    val pkg = call.argument<String>("packageName")
+                    if (pkg != null) {
                         CoroutineScope(Dispatchers.IO).launch {
                             try {
-                                val drawable = packageManager.getApplicationIcon(packageName)
-                                val targetSize = 120 // Optimized size for 40-50dp icons (3x density)
-                                
-                                val bitmap = android.graphics.Bitmap.createBitmap(targetSize, targetSize, android.graphics.Bitmap.Config.ARGB_8888)
+                                val drawable = packageManager.getApplicationIcon(pkg)
+                                val bitmap = android.graphics.Bitmap.createBitmap(120, 120, android.graphics.Bitmap.Config.ARGB_8888)
                                 val canvas = android.graphics.Canvas(bitmap)
-                                drawable.setBounds(0, 0, targetSize, targetSize)
-                                drawable.draw(canvas)
-                                
+                                drawable.setBounds(0, 0, 120, 120); drawable.draw(canvas)
                                 val stream = java.io.ByteArrayOutputStream()
-                                // Use WEBP_LOSSLESS if available (Android 30+) for better compression, else PNG
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                    bitmap.compress(android.graphics.Bitmap.CompressFormat.WEBP_LOSSLESS, 100, stream)
-                                } else {
-                                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 80, stream)
-                                }
-                                val byteArray = stream.toByteArray()
-                                bitmap.recycle() // Immediate memory cleanup
-                                
-                                withContext(Dispatchers.Main) {
-                                    result.success(byteArray)
-                                }
-                            } catch (e: Exception) {
-                                withContext(Dispatchers.Main) {
-                                    result.error("ICON_ERROR", e.message, null)
-                                }
-                            }
-                        }
-                    } else result.error("ERROR", "Null package", null)
-                }
-
-                "getAppLabel" -> {
-                    val packageName = call.argument<String>("packageName")
-                    if (packageName != null) {
-                        try {
-                            val appInfo = packageManager.getApplicationInfo(packageName, 0)
-                            val label = packageManager.getApplicationLabel(appInfo).toString()
-                            result.success(label)
-                        } catch (e: Exception) {
-                            result.success(packageName) // Fallback to package name
+                                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 80, stream)
+                                val bytes = stream.toByteArray(); bitmap.recycle()
+                                withContext(Dispatchers.Main) { result.success(bytes) }
+                            } catch (e: Exception) { withContext(Dispatchers.Main) { result.error("ICON_ERROR", e.message, null) } }
                         }
                     } else result.error("ERROR", "Null package", null)
                 }
 
                 "addToWhitelist" -> {
-                    val packageName = call.argument<String>("packageName")
-                    if (packageName != null) {
+                    val pkg = call.argument<String>("packageName")
+                    if (pkg != null) {
                         val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
-                        val currentSet = prefs.getStringSet("whitelisted_apps", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-                        currentSet.add(packageName)
-                        val success = prefs.edit().putStringSet("whitelisted_apps", currentSet).commit()
-                        
-                        if (success) {
-                            stopVpnService()
-                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                val intent = Intent(this, AdBlockVpnService::class.java).apply { 
-                                    action = AdBlockVpnService.ACTION_START 
-                                    putStringArrayListExtra("whitelisted_apps", ArrayList(currentSet))
-                                }
-                                startService(intent)
-                            }, 300)
-                        }
-                        result.success(success)
+                        val current = prefs.getStringSet("whitelisted_apps", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                        current.add(pkg)
+                        val ok = prefs.edit().putStringSet("whitelisted_apps", current).commit()
+                        if (ok) { stopVpnService(); android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ startVpnService(getEssentialApps()) }, 300) }
+                        result.success(ok)
                     } else result.error("ERROR", "Null package", null)
-                }
-
-                "addDomainToWhitelist" -> {
-                    val domain = call.argument<String>("domain")
-                    if (domain != null) {
-                        val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
-                        val currentSet = prefs.getStringSet("whitelisted_domains", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-                        currentSet.add(domain.lowercase())
-                        val success = prefs.edit().putStringSet("whitelisted_domains", currentSet).commit()
-                        
-                        if (success) {
-                            val intent = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_UPDATE_WHITELIST }
-                            startService(intent)
-                        }
-                        result.success(success)
-                    } else result.error("ERROR", "Null domain", null)
                 }
 
                 "removeFromWhitelist" -> {
-                    val packageName = call.argument<String>("packageName")
-                    if (packageName != null) {
+                    val pkg = call.argument<String>("packageName")
+                    if (pkg != null) {
                         val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
-                        val currentSet = prefs.getStringSet("whitelisted_apps", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-                        currentSet.remove(packageName)
-                        val success = prefs.edit().putStringSet("whitelisted_apps", currentSet).commit()
-                        
-                        if (success) {
-                            stopVpnService()
-                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                val intent = Intent(this, AdBlockVpnService::class.java).apply { 
-                                    action = AdBlockVpnService.ACTION_START 
-                                    putStringArrayListExtra("whitelisted_apps", ArrayList(currentSet))
-                                }
-                                startService(intent)
-                            }, 300)
-                        }
-                        result.success(success)
+                        val current = prefs.getStringSet("whitelisted_apps", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                        current.remove(pkg)
+                        val ok = prefs.edit().putStringSet("whitelisted_apps", current).commit()
+                        if (ok) { stopVpnService(); android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ startVpnService(getEssentialApps()) }, 300) }
+                        result.success(ok)
                     } else result.error("ERROR", "Null package", null)
+                }
+
+                "updateBlocklistPath" -> {
+                    val path = call.argument<String>("path")
+                    if (path != null) {
+                        val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
+                        val ok = prefs.edit().putString("dynamic_blocklist_path", path).commit()
+                        if (ok) { val i = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_UPDATE_WHITELIST }; startService(i) }
+                        result.success(ok)
+                    } else result.error("ERROR", "Null path", null)
                 }
 
                 else -> result.notImplemented()
@@ -335,22 +220,50 @@ class MainActivity : FlutterActivity() {
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, STREAM_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
-                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                    logSink = events
-                    AdBlockVpnService.getLogs().reversed().forEach {
-                        sendLogToFlutter(it)
-                    }
-                }
-
-                override fun onCancel(arguments: Any?) {
-                    logSink = null
-                }
+                override fun onListen(args: Any?, events: EventChannel.EventSink?) { logSink = events; AdBlockVpnService.getLogs().reversed().forEach { sendLogToFlutter(it) } }
+                override fun onCancel(args: Any?) { logSink = null }
             }
         )
     }
 
-    private fun startVpnService() {
-        val intent = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_START }
+    private fun getEssentialApps(): ArrayList<String> {
+        val list = ArrayList<String>()
+        val packages = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+        for (app in packages) {
+            val pkg = app.packageName.lowercase()
+            
+            // 1. Deteksi Kategori Sistem (Jika tersedia)
+            val isShoppingCategory = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                app.category == 8 || app.category == 6 || app.category == 7
+            } else false
+            
+            // 2. Deteksi Kata Kunci Industri (Finance, E-commerce, Ojol, Travel)
+            val isIndustryMatch = pkg.contains(".bank") || pkg.contains(".pay") || 
+                                 pkg.contains(".wallet") || pkg.contains(".finance") || 
+                                 pkg.contains("payment") || pkg.contains(".shop") || 
+                                 pkg.contains(".mall") || pkg.contains(".market") ||
+                                 pkg.contains("commerce") || pkg.contains("traveloka") ||
+                                 pkg.contains("grab") || pkg.contains("gojek") ||
+                                 pkg.contains("tokopedia") || pkg.contains("shopee") ||
+                                 pkg.contains("lazada") || pkg.contains("blibli")
+
+            // 3. Deteksi Aplikasi Populer Indonesia yang sering bermasalah dengan AdBlock
+            val popularApps = listOf("com.shopee.id", "com.tokopedia.tkpd", "com.lazada.android", "com.gojek.app", "com.grabtaxi.driverid", "com.dana.id", "com.btpn.pbtit", "id.dana")
+            val isPopularMatch = popularApps.any { pkg.startsWith(it) }
+
+            if (isShoppingCategory || isIndustryMatch || isPopularMatch) {
+                list.add(app.packageName)
+            }
+        }
+        android.util.Log.d("ZeroAd_Smart", "Essential Apps Detected: ${list.size}")
+        return list
+    }
+
+    private fun startVpnService(essentialApps: ArrayList<String>? = null) {
+        val intent = Intent(this, AdBlockVpnService::class.java).apply { 
+            action = AdBlockVpnService.ACTION_START 
+            if (essentialApps != null) putStringArrayListExtra("essential_apps", essentialApps)
+        }
         startService(intent)
     }
 
@@ -362,10 +275,8 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE) {
-            if (resultCode == Activity.RESULT_OK) {
-                startVpnService()
-                pendingResult?.success(true)
-            } else pendingResult?.error("REJECTED", "VPN Rejected", null)
+            if (resultCode == Activity.RESULT_OK) { startVpnService(getEssentialApps()); pendingResult?.success(true) }
+            else pendingResult?.error("REJECTED", "VPN Rejected", null)
             pendingResult = null
         }
     }

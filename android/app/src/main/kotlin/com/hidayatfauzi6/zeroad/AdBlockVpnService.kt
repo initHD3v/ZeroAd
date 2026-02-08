@@ -32,6 +32,11 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.Timer
 import java.util.TimerTask
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.LinkedBlockingQueue
 
 @Serializable
 data class BypassListContainer(val bypass_packages: List<String>)
@@ -40,13 +45,20 @@ class AdBlockVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var executor: ExecutorService? = null
+    private var outputExecutor: ExecutorService? = null
+    private val outputQueue = LinkedBlockingQueue<ByteArray>(1000)
     private var isRunning = false
     private var whitelistedApps: MutableSet<String> = mutableSetOf()
+    private var autonomousEssentialApps: MutableSet<String> = mutableSetOf()
     private var whitelistedDomains: MutableSet<String> = mutableSetOf()
+    private val autoWhitelistedDomains = HashSet<String>()
     private val blockedDomains = HashSet<String>()
     private lateinit var prefs: SharedPreferences
     
-    // Notification State
+    private val packageKeywordMap = ConcurrentHashMap<String, String>()
+    private val dnsCache = ConcurrentHashMap<String, Pair<ByteArray, Long>>()
+    private val CACHE_TTL = 300000L
+    
     private var blockedCount = 0
     private var lastNotificationUpdate = 0L
     private val NOTIFICATION_ID = 1
@@ -59,29 +71,41 @@ class AdBlockVpnService : VpnService() {
         private const val TAG = "ZeroAdService"
         
         private val logBuffer = ConcurrentLinkedQueue<String>()
+        private val lastLogTimestamp = ConcurrentHashMap<String, Long>()
 
         fun addLog(log: String) {
-            logBuffer.add(log)
-            if (logBuffer.size > 500) {
-                logBuffer.poll()
+            val parts = log.split("|")
+            if (parts.size >= 5) {
+                val key = "${parts[1]}_${parts[4]}_${parts[3]}"
+                val now = System.currentTimeMillis()
+                val lastTime = lastLogTimestamp[key] ?: 0L
+                if (now - lastTime < 2000) return
+                lastLogTimestamp[key] = now
             }
+            logBuffer.add(log)
+            if (logBuffer.size > 500) logBuffer.poll()
             MainActivity.sendLogToFlutter(log)
         }
 
-        fun getLogs(): List<String> {
-            return logBuffer.toList().reversed()
-        }
+        fun getLogs(): List<String> { return logBuffer.toList().reversed() }
 
         private val SYSTEM_WHITELIST = hashSetOf(
             "google.com", "googleapis.com", "gstatic.com", "googleusercontent.com",
             "whatsapp.net", "whatsapp.com", "facebook.com", "fbcdn.net",
-            "instagram.com", "android.com", "play.google.com", "drive.google.com"
+            "instagram.com", "android.com", "play.google.com", "drive.google.com",
+            "github.com", "githubusercontent.com", "adjust.com", "adjust.world", "adjust.in"
         )
 
         private val UPSTREAM_DNS_SERVERS = listOf(
-            InetAddress.getByAddress(byteArrayOf(1, 1, 1, 1)),
-            InetAddress.getByAddress(byteArrayOf(8, 8, 8, 8)),
-            InetAddress.getByAddress(byteArrayOf(9, 9, 9, 9))
+            InetAddress.getByName("1.1.1.1"),
+            InetAddress.getByName("8.8.8.8"),
+            InetAddress.getByName("9.9.9.9")
+        )
+
+        private val DOH_IPS = hashSetOf(
+            "1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9", 
+            "149.112.112.112", "208.67.222.222", "208.67.220.220",
+            "94.140.14.14", "94.140.15.15", "45.90.28.0", "45.90.30.0"
         )
     }
 
@@ -90,29 +114,49 @@ class AdBlockVpnService : VpnService() {
         createNotificationChannel()
     }
 
-    private var cachedInstalledApps: List<String> = listOf()
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> stopVpn()
             ACTION_START -> {
-                if (executor == null) executor = Executors.newFixedThreadPool(10)
+                if (executor == null) executor = Executors.newFixedThreadPool(15)
+                if (outputExecutor == null) outputExecutor = Executors.newSingleThreadExecutor()
+                
+                Timer().scheduleAtFixedRate(object : TimerTask() {
+                    override fun run() {
+                        val now = System.currentTimeMillis()
+                        dnsCache.entries.removeIf { now - it.value.second > CACHE_TTL }
+                    }
+                }, 600000, 600000)
+
                 loadWhitelist()
                 
-                // Pre-load installed packages to avoid Binder Flooding in DNS loop
+                val essentialApps = intent.getStringArrayListExtra("essential_apps")
+                if (essentialApps != null) {
+                    autonomousEssentialApps.clear()
+                    autonomousEssentialApps.addAll(essentialApps)
+                    Log.d(TAG, "Cerdas: Autonomous trust built for ${autonomousEssentialApps.size} apps")
+                }
+
                 executor?.execute {
                     try {
-                        cachedInstalledApps = packageManager.getInstalledPackages(0).map { it.packageName }
-                        Log.d(TAG, "Pre-loaded ${cachedInstalledApps.size} apps for fast lookup")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to pre-load apps", e)
-                    }
+                        val apps = packageManager.getInstalledPackages(0)
+                        val newMap = mutableMapOf<String, String>()
+                        for (app in apps) {
+                            val pkg = app.packageName
+                            val parts = pkg.split(".")
+                            for (part in parts) {
+                                if (part.length > 3 && part !in listOf("com", "android", "google", "apps", "mobile")) {
+                                    newMap[part.lowercase()] = pkg
+                                }
+                            }
+                        }
+                        packageKeywordMap.clear()
+                        packageKeywordMap.putAll(newMap)
+                    } catch (e: Exception) {}
                 }
                 
                 val freshWhitelist = intent.getStringArrayListExtra("whitelisted_apps")
-                if (freshWhitelist != null) {
-                    whitelistedApps.addAll(freshWhitelist)
-                }
+                if (freshWhitelist != null) whitelistedApps.addAll(freshWhitelist)
                 
                 loadBlocklistFromAssets()
                 
@@ -125,16 +169,17 @@ class AdBlockVpnService : VpnService() {
                 
                 startVpn()
             }
-            ACTION_UPDATE_WHITELIST -> loadWhitelist()
+            ACTION_UPDATE_WHITELIST -> {
+                loadWhitelist()
+                loadBlocklistFromAssets()
+            }
         }
         return START_STICKY
     }
     
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "ZeroAd Shield Status"
-            val importance = NotificationManager.IMPORTANCE_LOW 
-            val channel = NotificationChannel(CHANNEL_ID, name, importance)
+            val channel = NotificationChannel(CHANNEL_ID, "ZeroAd Shield Status", NotificationManager.IMPORTANCE_LOW)
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
@@ -159,9 +204,13 @@ class AdBlockVpnService : VpnService() {
     private fun updateNotificationCounter() {
         blockedCount++
         val now = System.currentTimeMillis()
-        if (now - lastNotificationUpdate > 2000) {
+        if (now - lastNotificationUpdate > 5000) {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.notify(NOTIFICATION_ID, createNotification())
+            executor?.execute {
+                try {
+                    notificationManager.notify(NOTIFICATION_ID, createNotification())
+                } catch (e: Exception) {}
+            }
             lastNotificationUpdate = now
         }
     }
@@ -177,9 +226,35 @@ class AdBlockVpnService : VpnService() {
                         if (domain.isNotEmpty() && !domain.startsWith("#")) newBlockedDomains.add(domain.lowercase())
                     }
                 }
+                val dynamicPath = prefs.getString("dynamic_blocklist_path", null)
+                if (dynamicPath != null) {
+                    val dynamicFile = File(dynamicPath)
+                    if (dynamicFile.exists()) {
+                        dynamicFile.bufferedReader().useLines { lines ->
+                            lines.forEach { line ->
+                                val domain = line.trim()
+                                if (domain.isNotEmpty()) newBlockedDomains.add(domain.lowercase())
+                            }
+                        }
+                    }
+                }
                 synchronized(blockedDomains) {
                     blockedDomains.clear()
                     blockedDomains.addAll(newBlockedDomains)
+                }
+                val autoWhitePath = prefs.getString("auto_whitelist_path", null)
+                if (autoWhitePath != null) {
+                    val whiteFile = File(autoWhitePath)
+                    if (whiteFile.exists()) {
+                        val newAutoWhite = HashSet<String>()
+                        whiteFile.bufferedReader().useLines { lines ->
+                            lines.forEach { if (it.isNotEmpty()) newAutoWhite.add(it.lowercase()) }
+                        }
+                        synchronized(autoWhitelistedDomains) {
+                            autoWhitelistedDomains.clear()
+                            autoWhitelistedDomains.addAll(newAutoWhite)
+                        }
+                    }
                 }
             } catch (e: Exception) {}
         }
@@ -208,40 +283,71 @@ class AdBlockVpnService : VpnService() {
             builder.setSession("ZeroAd Protection")
             builder.addAddress("10.0.0.2", 32)
             
-            listOf("8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1", "9.9.9.9").forEach {
-                try { builder.addRoute(it, 32) } catch (e: Exception) {}
-            }
+            // Izinkan trafik sistem & lokal bypass tunnel untuk Wireless Debugging
+            builder.allowBypass() 
             
+            DOH_IPS.forEach { try { builder.addRoute(it, 32) } catch (e: Exception) {} }
             builder.addDnsServer("8.8.8.8")
             builder.setMtu(1500)
             
+            // --- SOLUSI ABSOLUT: SYSTEM-LEVEL BYPASS ---
+            // Aplikasi di bawah ini akan mendapatkan "Internet Asli dari ISP"
+            // Mereka tidak akan melewati tunnel Zeroad sama sekali.
+            
+            // 1. Bypass Zeroad sendiri
+            try { builder.addDisallowedApplication(packageName) } catch (e: Exception) {}
+            
+            // 2. Bypass Aplikasi Esensial (E-commerce, Bank, dll yang dideteksi otomatis)
+            autonomousEssentialApps.forEach { 
+                try { 
+                    builder.addDisallowedApplication(it)
+                    Log.d(TAG, "Bypass Aktif (ISP Murni): $it")
+                } catch (e: Exception) {} 
+            }
+            
+            // 3. Bypass Whitelist Manual dari User
+            whitelistedApps.forEach { 
+                if (it != packageName && it.isNotEmpty()) {
+                    try { builder.addDisallowedApplication(it) } catch (e: Exception) {} 
+                }
+            }
+
+            // 4. Bypass Layanan Sistem Penting
             loadSystemBypassList().forEach { try { builder.addDisallowedApplication(it) } catch (e: Exception) {} }
-            whitelistedApps.forEach { if (it != packageName && it.isNotEmpty()) try { builder.addDisallowedApplication(it) } catch (e: Exception) {} }
 
             vpnInterface = builder.establish()
+            
+            outputExecutor?.execute {
+                val output = FileOutputStream(vpnInterface!!.fileDescriptor)
+                while (isRunning && vpnInterface != null) {
+                    try {
+                        val packet = outputQueue.poll(500, TimeUnit.MILLISECONDS)
+                        if (packet != null) synchronized(output) { output.write(packet) }
+                    } catch (e: Exception) { if (isRunning) Log.e(TAG, "Output queue error", e) }
+                }
+            }
             Thread { runLoop() }.start()
         } catch (e: Exception) { stopVpn() }
     }
 
     private fun runLoop() {
         val input = FileInputStream(vpnInterface!!.fileDescriptor)
-        val output = FileOutputStream(vpnInterface!!.fileDescriptor)
         val buffer = ByteBuffer.allocate(32767)
-
         while (isRunning && vpnInterface != null) {
             try {
                 val length = input.read(buffer.array())
                 if (length > 0) {
                     val packet = ByteBuffer.wrap(buffer.array(), 0, length)
                     if (isDnsPacket(packet)) {
-                        val packetCopy = ByteArray(length)
-                        System.arraycopy(buffer.array(), 0, packetCopy, 0, length)
+                        val packetCopy = ByteArray(length); System.arraycopy(buffer.array(), 0, packetCopy, 0, length)
                         val ipHeaderLen = (packet.get(0).toInt() and 0x0F) * 4
                         val srcPort = packet.getShort(ipHeaderLen).toInt() and 0xFFFF
-                        val sourceIp = getSourceIp(packet)
+                        val sourceIp = getSourceIp(packet); val destIp = getDestIp(packet)
+                        executor?.execute { handleDnsRequest(ByteBuffer.wrap(packetCopy), srcPort, sourceIp, destIp) }
+                    } else if (isDohPacket(packet)) {
                         val destIp = getDestIp(packet)
-                        executor?.execute { handleDnsRequest(ByteBuffer.wrap(packetCopy), output, srcPort, sourceIp, destIp) }
-                    } 
+                        addLog("${System.currentTimeMillis()}|$destIp|DOH_BYPASS|INTERCEPTED|system|System Force Fallback")
+                    }
                 }
             } catch (e: Exception) { if (isRunning) Log.e(TAG, "Loop error", e) }
         }
@@ -253,51 +359,122 @@ class AdBlockVpnService : VpnService() {
         val ipHeaderLen = (packet.get(0).toInt() and 0x0F) * 4
         return (packet.getShort(ipHeaderLen + 2).toInt() and 0xFFFF) == 53
     }
+
+    private fun isDohPacket(packet: ByteBuffer): Boolean {
+        val protocol = packet.get(9).toInt() and 0xFF
+        if (protocol != 6) return false
+        val ipHeaderLen = (packet.get(0).toInt() and 0x0F) * 4
+        val dstPort = packet.getShort(ipHeaderLen + 2).toInt() and 0xFFFF
+        if (dstPort != 443) return false
+        return DOH_IPS.contains(getDestIp(packet))
+    }
     
     private fun getSourceIp(packet: ByteBuffer): String {
-        val bytes = ByteArray(4)
-        packet.position(12); packet.get(bytes)
+        val bytes = ByteArray(4); packet.position(12); packet.get(bytes)
         return InetAddress.getByAddress(bytes).hostAddress ?: "0.0.0.0"
     }
 
     private fun getDestIp(packet: ByteBuffer): String {
-        val bytes = ByteArray(4)
-        packet.position(16); packet.get(bytes)
+        val bytes = ByteArray(4); packet.position(16); packet.get(bytes)
         return InetAddress.getByAddress(bytes).hostAddress ?: "0.0.0.0"
     }
 
-    private fun handleDnsRequest(packet: ByteBuffer, output: FileOutputStream, srcPort: Int, sourceIp: String, destIp: String) {
+    private fun handleDnsRequest(packet: ByteBuffer, srcPort: Int, sourceIp: String, destIp: String) {
         try {
             val dnsInfo = SimpleDnsParser.parse(packet) ?: return
+            val domain = dnsInfo.domain.lowercase()
+            
+            val cachedResponse = dnsCache[domain]
+            if (cachedResponse != null && (System.currentTimeMillis() - cachedResponse.second < CACHE_TTL)) {
+                sendSimpleDnsPacket(packet, cachedResponse.first); return
+            }
+
             val uid = getUidForPort(srcPort, sourceIp, destIp)
-            val appPackage = getPackageNameFromUid(uid, dnsInfo.domain)
+            val appPackage = getPackageNameFromUid(uid, domain)
             val appName = getAppNameFromPackage(appPackage)
             
-            val isWhitelistedApp = whitelistedApps.any { appPackage.startsWith(it) }
+            // 1. Identifikasi Aplikasi Esensial (Shopping, Finance, Maps)
+            val isEssentialApp = autonomousEssentialApps.contains(appPackage)
             
-            if (isWhitelistedApp) {
-                forwardQuery(dnsInfo.payload)?.let { 
-                    addLog("${System.currentTimeMillis()}|${dnsInfo.domain}|APP_WHITELISTED|ALLOWED|$appPackage|$appName")
-                    SimpleDnsParser.createResponsePacket(packet, it).let { res -> synchronized(output) { output.write(res) } }
+            val isSystemOrVendor = appPackage.startsWith("com.android.") || 
+                                  appPackage.startsWith("com.google.android.") ||
+                                  appPackage.startsWith("com.miui.") ||
+                                  appPackage.startsWith("com.xiaomi.")
+
+            // --- STRATEGI FINAL: ESSENTIAL APP BYPASS ---
+            // Jika aplikasi adalah E-commerce/Bank/Ojol -> IZINKAN SEMUA (Kecuali Malware)
+            // Ini adalah satu-satunya cara menjamin 100% kompatibilitas tanpa menebak-nebak domain tracker.
+            if (isEssentialApp || isSystemOrVendor || whitelistedApps.any { appPackage.startsWith(it) }) {
+                forwardQueryParallel(dnsInfo.payload)?.let { resPayload ->
+                    dnsCache[domain] = Pair(resPayload, System.currentTimeMillis())
+                    addLog("${System.currentTimeMillis()}|$domain|TRUSTED_APP_BYPASS|ALLOWED|$appPackage|$appName")
+                    sendSimpleDnsPacket(packet, resPayload)
                 }
                 return
             }
 
-            if (isAd(dnsInfo.domain)) {
-                addLog("${System.currentTimeMillis()}|${dnsInfo.domain}|AD_CONTENT|BLOCKED|$appPackage|$appName")
+            // 2. Untuk aplikasi NON-Esensial (Game, Browser, Sosmed), terapkan filter iklan ketat
+            if (isAd(domain)) {
+                addLog("${System.currentTimeMillis()}|$domain|AD_CONTENT|BLOCKED|$appPackage|$appName")
                 updateNotificationCounter()
-                SimpleDnsParser.createNxDomainResponse(packet).let { res -> synchronized(output) { output.write(res) } }
+                SimpleDnsParser.createNullIpResponse(packet).let { res -> outputQueue.offer(res) }
             } else {
-                forwardQuery(dnsInfo.payload)?.let { 
-                    addLog("${System.currentTimeMillis()}|${dnsInfo.domain}|DNS_QUERY|ALLOWED|$appPackage|$appName")
-                    SimpleDnsParser.createResponsePacket(packet, it).let { res -> synchronized(output) { output.write(res) } }
+                forwardQueryParallel(dnsInfo.payload)?.let { resPayload ->
+                    dnsCache[domain] = Pair(resPayload, System.currentTimeMillis())
+                    addLog("${System.currentTimeMillis()}|$domain|DNS_QUERY|ALLOWED|$appPackage|$appName")
+                    sendSimpleDnsPacket(packet, resPayload)
                 }
             }
         } catch (e: Exception) {}
     }
 
+    private fun sendSimpleDnsPacket(request: ByteBuffer, payload: ByteArray) {
+        SimpleDnsParser.createResponsePacket(request, payload).let { res -> outputQueue.offer(res) }
+    }
+
+    private fun isAd(domain: String): Boolean {
+        val ld = domain.lowercase()
+        if (SYSTEM_WHITELIST.any { ld == it || ld.endsWith(".$it") }) return false
+        if (whitelistedDomains.any { ld == it || ld.endsWith(".$it") }) return false
+        synchronized(autoWhitelistedDomains) { if (autoWhitelistedDomains.contains(ld)) return false }
+        synchronized(blockedDomains) {
+            if (blockedDomains.contains(ld)) return true
+            var p = ld
+            while (p.contains(".")) { p = p.substringAfter("."); if (blockedDomains.contains(p)) return true }
+        }
+        return false
+    }
+
+    private fun forwardQueryParallel(payload: ByteArray): ByteArray? {
+        val results = LinkedBlockingQueue<ByteArray>()
+        val sockets = CopyOnWriteArrayList<DatagramSocket>()
+        val latch = CountDownLatch(1)
+        for (addr in UPSTREAM_DNS_SERVERS) {
+            executor?.execute {
+                var socket: DatagramSocket? = null
+                try {
+                    socket = DatagramSocket()
+                    protect(socket)
+                    socket.soTimeout = 2000
+                    sockets.add(socket)
+                    val out = DatagramPacket(payload, payload.size, addr, 53)
+                    socket.send(out)
+                    val inData = ByteArray(1500); val inP = DatagramPacket(inData, inData.size)
+                    socket.receive(inP)
+                    results.offer(inData.copyOf(inP.length))
+                    latch.countDown()
+                } catch (e: Exception) {}
+            }
+        }
+        return try {
+            latch.await(2500, TimeUnit.MILLISECONDS)
+            results.poll()
+        } catch (e: Exception) { null }
+        finally { for (s in sockets) { try { if (!s.isClosed) s.close() } catch (e: Exception) {} } }
+    }
+
     private fun getUidForPort(port: Int, sourceIp: String, destIp: String): Int {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
                 val uid = cm.getConnectionOwnerUid(OsConstants.IPPROTO_UDP, java.net.InetSocketAddress(InetAddress.getByName(sourceIp), port), java.net.InetSocketAddress(InetAddress.getByName(destIp), 53))
@@ -330,18 +507,9 @@ class AdBlockVpnService : VpnService() {
     }
 
     private fun findPackageFromDomain(domain: String): String? {
-        if (cachedInstalledApps.isEmpty()) return null
-        
-        val ld = domain.lowercase()
-        // Ambil bagian tengah domain untuk pencocokan cepat (misal: shopee dari ads.shopee.id)
-        val parts = ld.split(".").filter { it.length > 3 && it !in listOf("com", "net", "org", "gov", "edu", "cloud", "unity3d") }
-        
-        for (pkg in cachedInstalledApps) {
-            for (p in parts) {
-                // Pencocokan cerdas: Apakah domain terkandung dalam package name?
-                if (pkg.contains(p, ignoreCase = true)) return pkg
-            }
-        }
+        if (packageKeywordMap.isEmpty()) return null
+        val parts = domain.lowercase().split(".").filter { it.length > 3 }
+        for (p in parts) { packageKeywordMap[p]?.let { return it } }
         return null
     }
     
@@ -353,37 +521,10 @@ class AdBlockVpnService : VpnService() {
         } catch (e: Exception) { if (packageName.startsWith("system.uid.")) "Layanan Sistem" else packageName }
     }
 
-    private fun isAd(domain: String): Boolean {
-        val ld = domain.lowercase()
-        if (SYSTEM_WHITELIST.any { ld == it || ld.endsWith(".$it") } || whitelistedDomains.any { ld == it || ld.endsWith(".$it") }) return false
-        synchronized(blockedDomains) {
-            if (blockedDomains.contains(ld)) return true
-            var p = ld
-            while (p.contains(".")) { p = p.substringAfter("."); if (blockedDomains.contains(p)) return true }
-        }
-        return false
-    }
-
-    private fun forwardQuery(payload: ByteArray): ByteArray? {
-        val socket = DatagramSocket()
-        protect(socket)
-        socket.soTimeout = 1500
-        val out = DatagramPacket(payload, payload.size)
-        val inData = ByteArray(1500)
-        val inP = DatagramPacket(inData, inData.size)
-        for (addr in UPSTREAM_DNS_SERVERS) {
-            try {
-                out.address = addr; out.port = 53
-                socket.send(out); socket.receive(inP)
-                socket.close(); return inData.copyOf(inP.length)
-            } catch (e: Exception) {}
-        }
-        socket.close(); return null
-    }
-
     private fun stopVpn() {
         isRunning = false
         executor?.shutdown()
+        outputExecutor?.shutdown()
         try { vpnInterface?.close() } catch (e: Exception) {}
         vpnInterface = null
         stopSelf()

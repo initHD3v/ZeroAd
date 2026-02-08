@@ -46,6 +46,15 @@ class AppLocalizations {
   String get disconnect => isId ? "PUTUSKAN" : "DISCONNECT";
   String get activeLabel => isId ? "AKTIF" : "ACTIVE";
   String get offLabel => isId ? "MATI" : "OFF";
+  
+  // --- DYNAMIC BLOCKLIST ---
+  String get databaseStatus => isId ? "Status Database" : "Database Status";
+  String get updateNow => isId ? "PERBARUI DATABASE" : "UPDATE DATABASE";
+  String get updating => isId ? "Memperbarui..." : "Updating...";
+  String get lastUpdate => isId ? "Terakhir Update" : "Last Update";
+  String get domainsBlocked => isId ? "Domain Iklan" : "Ad Domains";
+  String get intelligenceDomains => isId ? "Domain Aman" : "Safe Domains";
+  String get neverUpdated => isId ? "Belum pernah" : "Never";
 
   // --- ACTIVITY TAB ---
   String get liveActivity => isId ? "Aktivitas Langsung" : "Live Activity";
