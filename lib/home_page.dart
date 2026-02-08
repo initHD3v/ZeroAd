@@ -124,15 +124,14 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                           letterSpacing: 1.5,
                         ),
                       ),
-                      const Text(
-                        "Version 1.1.0+2",
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+                                        const Text(
+                                          "Version 1.2.0+3",
+                                          style: TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),                    ],
                   ),
                 ),
                 Padding(
