@@ -66,7 +66,15 @@ class ActivityTab extends StatelessWidget {
       if (logFilter == 'ALL') return true;
       final parts = log.split('|');
       if (parts.length < 3) return false;
-      return parts[2] == 'AD_CONTENT' || parts[2] == 'TRACKER' || parts[2] == 'APP_WHITELISTED';
+      
+      final status = parts[2];
+      // Filter Cerdas: Tampilkan jika mengandung indikasi blokir atau ancaman
+      return status == 'AD_CONTENT' || 
+             status == 'WEB_SHIELD' || 
+             status == 'AD_ENGINE' || 
+             status == 'DOH_BLOCK' ||
+             status == 'BLOCKED' ||
+             status == 'TRACKER';
     }).toList();
 
     final Map<String, List<String>> groupedLogs = {};

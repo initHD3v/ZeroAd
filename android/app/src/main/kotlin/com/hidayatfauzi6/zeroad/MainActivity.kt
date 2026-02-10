@@ -51,21 +51,19 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         var logSink: EventChannel.EventSink? = null
+        
+        // Gunakan Handler Utama agar pengiriman log ke Flutter selalu aman dari thread mana pun
+        private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
         fun sendLogToFlutter(log: String) {
-            logSink?.let { sink ->
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    try { sink.success(log) } catch (e: Exception) {}
+            uiHandler.post {
+                try {
+                    logSink?.success(log)
+                } catch (e: Exception) {
+                    android.util.Log.e("ZeroAd_MainActivity", "Gagal kirim log ke Flutter", e)
                 }
             }
         }
-    }
-
-    private fun loadAdSignatures(): List<AdSignature> {
-        return try {
-            val jsonString = assets.open("ad_signatures.json").bufferedReader().use { it.readText() }
-            val container = Json.decodeFromString<AdSignaturesContainer>(jsonString)
-            container.signatures
-        } catch (e: Exception) { listOf() }
     }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
@@ -131,32 +129,30 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                "uninstallApp" -> {
-                    val pkg = call.argument<String>("packageName")
-                    if (pkg != null) {
-                        startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:$pkg")))
-                        result.success(true)
-                    } else result.error("ERROR", "Null package", null)
-                }
-
                 "startAdBlock" -> {
-                    val intent = VpnService.prepare(this)
-                    if (intent != null) {
-                        pendingResult = result
-                        startActivityForResult(intent, VPN_REQUEST_CODE)
-                    } else {
-                        CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val intent = VpnService.prepare(this)
+                        if (intent != null) {
+                            pendingResult = result
+                            startActivityForResult(intent, VPN_REQUEST_CODE)
+                        } else {
+                            // Jika sudah diizinkan, langsung jalankan
                             val essentialApps = getEssentialApps()
-                            withContext(Dispatchers.Main) {
-                                startVpnService(essentialApps)
-                                result.success(true)
-                            }
+                            startVpnService(essentialApps)
+                            result.success(true)
                         }
+                    } catch (e: SecurityException) {
+                        // Solusi untuk MIUI UID mismatch: arahkan user ke info aplikasi untuk reset izin jika perlu
+                        android.util.Log.e("ZeroAd_MainActivity", "MIUI Security Exception Detected", e)
+                        result.error("SECURITY_ERROR", "Izin VPN ditolak oleh sistem MIUI. Silakan hapus data aplikasi dan coba lagi.", e.message)
+                    } catch (e: Exception) {
+                        result.error("ERROR", e.message, null)
                     }
                 }
 
                 "stopAdBlock" -> {
-                    stopVpnService()
+                    val intent = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_STOP }
+                    startService(intent)
                     result.success(false)
                 }
 
@@ -187,7 +183,16 @@ class MainActivity : FlutterActivity() {
                         val current = prefs.getStringSet("whitelisted_apps", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
                         current.add(pkg)
                         val ok = prefs.edit().putStringSet("whitelisted_apps", current).commit()
-                        if (ok) { stopVpnService(); android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ startVpnService(getEssentialApps()) }, 300) }
+                        if (ok) { 
+                            val stopIntent = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_STOP }
+                            startService(stopIntent)
+                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ 
+                                CoroutineScope(Dispatchers.IO).launch {
+                                    val apps = getEssentialApps()
+                                    withContext(Dispatchers.Main) { startVpnService(apps) }
+                                }
+                            }, 500)
+                        }
                         result.success(ok)
                     } else result.error("ERROR", "Null package", null)
                 }
@@ -199,7 +204,16 @@ class MainActivity : FlutterActivity() {
                         val current = prefs.getStringSet("whitelisted_apps", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
                         current.remove(pkg)
                         val ok = prefs.edit().putStringSet("whitelisted_apps", current).commit()
-                        if (ok) { stopVpnService(); android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ startVpnService(getEssentialApps()) }, 300) }
+                        if (ok) { 
+                            val stopIntent = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_STOP }
+                            startService(stopIntent)
+                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ 
+                                CoroutineScope(Dispatchers.IO).launch {
+                                    val apps = getEssentialApps()
+                                    withContext(Dispatchers.Main) { startVpnService(apps) }
+                                }
+                            }, 500)
+                        }
                         result.success(ok)
                     } else result.error("ERROR", "Null package", null)
                 }
@@ -220,7 +234,16 @@ class MainActivity : FlutterActivity() {
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, STREAM_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
-                override fun onListen(args: Any?, events: EventChannel.EventSink?) { logSink = events; AdBlockVpnService.getLogs().reversed().forEach { sendLogToFlutter(it) } }
+                override fun onListen(args: Any?, events: EventChannel.EventSink?) { 
+                    logSink = events
+                    // Kirim ulang log terakhir saat UI terhubung
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val logs = AdBlockVpnService.getLogs()
+                        withContext(Dispatchers.Main) {
+                            for (log in logs) { sendLogToFlutter(log) }
+                        }
+                    }
+                }
                 override fun onCancel(args: Any?) { logSink = null }
             }
         )
@@ -231,31 +254,20 @@ class MainActivity : FlutterActivity() {
         val packages = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
         for (app in packages) {
             val pkg = app.packageName.lowercase()
-            
-            // 1. Deteksi Kategori Sistem (Jika tersedia)
-            val isShoppingCategory = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (pkg.contains("chrome") || pkg.contains("browser") || pkg.contains("webview")) continue
+            val isEssentialCategory = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 app.category == 8 || app.category == 6 || app.category == 7
             } else false
-            
-            // 2. Deteksi Kata Kunci Industri (Finance, E-commerce, Ojol, Travel)
             val isIndustryMatch = pkg.contains(".bank") || pkg.contains(".pay") || 
                                  pkg.contains(".wallet") || pkg.contains(".finance") || 
                                  pkg.contains("payment") || pkg.contains(".shop") || 
-                                 pkg.contains(".mall") || pkg.contains(".market") ||
-                                 pkg.contains("commerce") || pkg.contains("traveloka") ||
-                                 pkg.contains("grab") || pkg.contains("gojek") ||
-                                 pkg.contains("tokopedia") || pkg.contains("shopee") ||
-                                 pkg.contains("lazada") || pkg.contains("blibli")
-
-            // 3. Deteksi Aplikasi Populer Indonesia yang sering bermasalah dengan AdBlock
-            val popularApps = listOf("com.shopee.id", "com.tokopedia.tkpd", "com.lazada.android", "com.gojek.app", "com.grabtaxi.driverid", "com.dana.id", "com.btpn.pbtit", "id.dana")
-            val isPopularMatch = popularApps.any { pkg.startsWith(it) }
-
-            if (isShoppingCategory || isIndustryMatch || isPopularMatch) {
-                list.add(app.packageName)
-            }
+                                 pkg.contains(".market") || pkg.contains("commerce") || 
+                                 pkg.contains("traveloka") || pkg.contains("shopee") || 
+                                 pkg.contains("tokopedia") || pkg.contains("gojek") || 
+                                 pkg.contains("id.dana") || pkg.contains("grab") ||
+                                 pkg.contains("youtube") || pkg.contains("vending")
+            if (isEssentialCategory || isIndustryMatch) list.add(app.packageName)
         }
-        android.util.Log.d("ZeroAd_Smart", "Essential Apps Detected: ${list.size}")
         return list
     }
 
@@ -267,16 +279,24 @@ class MainActivity : FlutterActivity() {
         startService(intent)
     }
 
-    private fun stopVpnService() {
-        val intent = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_STOP }
-        startService(intent)
+    private fun loadAdSignatures(): List<AdSignature> {
+        return try {
+            val jsonString = assets.open("ad_signatures.json").bufferedReader().use { it.readText() }
+            val container = Json.decodeFromString<AdSignaturesContainer>(jsonString)
+            container.signatures
+        } catch (e: Exception) { listOf() }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE) {
-            if (resultCode == Activity.RESULT_OK) { startVpnService(getEssentialApps()); pendingResult?.success(true) }
-            else pendingResult?.error("REJECTED", "VPN Rejected", null)
+            if (resultCode == Activity.RESULT_OK) { 
+                CoroutineScope(Dispatchers.IO).launch {
+                    val apps = getEssentialApps()
+                    withContext(Dispatchers.Main) { startVpnService(apps) }
+                }
+                pendingResult?.success(true) 
+            } else pendingResult?.error("REJECTED", "VPN Rejected", null)
             pendingResult = null
         }
     }
