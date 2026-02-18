@@ -12,22 +12,26 @@ class RoutingManager(private val builder: VpnService.Builder) {
             // 1. IP Lokal VPN
             builder.addAddress("10.0.0.2", 32)
 
-            // 2. Rute Khusus DNS Virtual
-            // Kita buat IP 'palsu' 10.0.0.1 sebagai tujuan DNS.
-            // Dengan hanya me-route IP ini, data browsing Chrome DIJAMIN 100% lewat ISP.
-            builder.addRoute("10.0.0.1", 32)
-
-            // 3. Daftarkan 10.0.0.1 sebagai DNS Server sistem
-            builder.addDnsServer("10.0.0.1")
+            // 2. Trap DNS (Menggunakan IP asli agar app yang di-bypass tetap bisa resolusi DNS via ISP)
+            // Dengan me-route IP ini, app yang di-filter (Game) akan masuk ke VPN.
+            // App yang di-bypass (GMS, Chrome) akan langsung ke ISP.
+            val dnsV4Traps = listOf("8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1")
+            dnsV4Traps.forEach {
+                builder.addRoute(it, 32)
+                builder.addDnsServer(it)
+            }
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 builder.addAddress("fd00::2", 128)
-                builder.addRoute("fd00::1", 128)
-                builder.addDnsServer("fd00::1")
+                val dnsV6Traps = listOf("2001:4860:4860::8888", "2606:4700:4700::1111")
+                dnsV6Traps.forEach {
+                    builder.addRoute(it, 128)
+                    builder.addDnsServer(it)
+                }
             }
 
             builder.allowBypass()
-            builder.setMtu(1280)
+            builder.setMtu(1500)
             builder.setSession("ZeroAd Smart Shield")
         } catch (e: Exception) {
             Log.e("RoutingManager", "Error konfigurasi routing", e)

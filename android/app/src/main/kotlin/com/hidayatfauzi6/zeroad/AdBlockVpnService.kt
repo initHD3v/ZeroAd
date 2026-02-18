@@ -14,6 +14,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.hidayatfauzi6.zeroad.engine.AdFilterEngine
+import com.hidayatfauzi6.zeroad.engine.AppCategory
 import com.hidayatfauzi6.zeroad.engine.RoutingManager
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -35,6 +36,12 @@ class AdBlockVpnService : VpnService() {
     private val dnsCache = ConcurrentHashMap<String, Pair<ByteArray, Long>>()
     private val CACHE_TTL = 300000L
     private lateinit var prefs: SharedPreferences
+
+    // --- SMART CACHE ---
+    data class UidEntry(val uid: Int, val timestamp: Long)
+    private val portUidCache = ConcurrentHashMap<Int, UidEntry>()
+    private val uidCategoryCache = ConcurrentHashMap<Int, AppCategory>()
+    private val PORT_CACHE_TTL = 30000L // 30 Detik
     
     private var blockedCount = 0
     private var lastNotificationUpdate = 0L
@@ -87,9 +94,14 @@ class AdBlockVpnService : VpnService() {
                 prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
                 
                 val essentialApps = intent.getStringArrayListExtra("essential_apps") ?: arrayListOf()
-                // Bypass Chrome secara permanen agar tidak macet
-                val chromePkgs = listOf("com.android.chrome", "com.chrome.beta", "com.chrome.dev", "com.chrome.canary")
-                chromePkgs.forEach { if (!essentialApps.contains(it)) essentialApps.add(it) }
+                // Bypass Chrome & Google Play Services secara permanen agar tidak macet
+                val criticalBypassPkgs = listOf(
+                    "com.android.chrome", "com.chrome.beta", "com.chrome.dev", "com.chrome.canary",
+                    "com.google.android.gms", "com.android.vending", "com.google.android.gsf", 
+                    "com.google.android.play.games",
+                    "com.heytap.market", "com.oppo.market", "com.heytap.browser"
+                )
+                criticalBypassPkgs.forEach { if (!essentialApps.contains(it)) essentialApps.add(it) }
                 
                 filterEngine.updateEssentialApps(essentialApps)
                 
@@ -97,6 +109,7 @@ class AdBlockVpnService : VpnService() {
                     filterEngine.loadBlocklists(prefs)
                     val userWhitelist = prefs.getStringSet("whitelisted_apps", emptySet()) ?: emptySet()
                     filterEngine.updateUserWhitelist(userWhitelist)
+                    buildAppCategoryCache()
                 }
 
                 startForeground(NOTIFICATION_ID, createNotification())
@@ -107,10 +120,74 @@ class AdBlockVpnService : VpnService() {
                     filterEngine.loadBlocklists(prefs)
                     val userWhitelist = prefs.getStringSet("whitelisted_apps", emptySet()) ?: emptySet()
                     filterEngine.updateUserWhitelist(userWhitelist)
+                    buildAppCategoryCache()
                 }
             }
         }
         return START_STICKY
+    }
+
+    private fun buildAppCategoryCache() {
+        try {
+            val pm = packageManager
+            val apps = pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
+            val newCache = mutableMapOf<Int, AppCategory>()
+            for (app in apps) {
+                var category = AppCategory.GENERAL
+                
+                // 1. Deteksi Sistem
+                if (app.packageName.startsWith("com.android") || 
+                    app.packageName.startsWith("com.google.android") ||
+                    (app.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0) {
+                    category = AppCategory.SYSTEM
+                } 
+                // 2. Deteksi Game
+                else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    if (app.category == android.content.pm.ApplicationInfo.CATEGORY_GAME ||
+                        (app.flags and android.content.pm.ApplicationInfo.FLAG_IS_GAME) != 0) {
+                        category = AppCategory.GAME
+                    }
+                } else if ((app.flags and android.content.pm.ApplicationInfo.FLAG_IS_GAME) != 0) {
+                    category = AppCategory.GAME
+                }
+
+                // 3. Fallback Heuristic Detection (Package Name Keywords)
+                if (category == AppCategory.GENERAL) {
+                    val pkg = app.packageName.lowercase()
+                    if (pkg.contains("game") || pkg.contains("unity") || pkg.contains("unreal") || 
+                        pkg.contains("supercell") || pkg.contains("moonton") || pkg.contains("mihoyo") ||
+                        pkg.contains("tencent") || pkg.contains("roblox") || pkg.contains("garena") ||
+                        pkg.contains("niantic") || pkg.contains("activision")) {
+                        category = AppCategory.GAME
+                    }
+                }
+
+                // 4. Fallback Heuristic Detection (E-Commerce -> SYSTEM Bypass)
+                // E-Commerce apps often break with any filtering. We treat them as SYSTEM to bypass filtering.
+                if (category == AppCategory.GENERAL) {
+                    val pkg = app.packageName.lowercase()
+                    if (pkg.contains("shopee") || pkg.contains("tokopedia") || pkg.contains("lazada") ||
+                        pkg.contains("bukalapak") || pkg.contains("blibli") || pkg.contains("tiktok") ||
+                        pkg.contains("alibaba") || pkg.contains("amazon") || pkg.contains("ebay") ||
+                        // Finance / Banking
+                        pkg.contains("bank") || pkg.contains("finance") || pkg.contains("wallet") || 
+                        pkg.contains("dana") || pkg.contains("ovo") || pkg.contains("gopay") ||
+                        pkg.contains("bca") || pkg.contains("mandiri") || pkg.contains("bni") || 
+                        pkg.contains("bri") || pkg.contains("cimb") || pkg.contains("jenius") || 
+                        pkg.contains("jago") || pkg.contains("neobank") || pkg.contains("livin") ||
+                        pkg.contains("brimo")) {
+                        category = AppCategory.SYSTEM
+                    }
+                }
+
+                newCache[app.uid] = category
+            }
+            uidCategoryCache.clear()
+            uidCategoryCache.putAll(newCache)
+            Log.d(TAG, "App Category Cache Rebuilt: ${uidCategoryCache.size} apps")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error building category cache", e)
+        }
     }
 
     private fun startVpn() {
@@ -121,26 +198,33 @@ class AdBlockVpnService : VpnService() {
             val routingManager = RoutingManager(builder)
             
             routingManager.configureDnsOnlyRouting()
+            // Kita kembalikan bypass untuk aplikasi esensial (Chrome, GMS, dll)
+            // Ini menjamin kestabilan sistem dan internet Chrome.
             routingManager.applyBypassApps(packageName, filterEngine.getEssentialApps())
 
             vpnInterface = builder.establish()
             
-            outputExecutor?.execute {
-                val fd = vpnInterface!!.fileDescriptor
-                val output = FileOutputStream(fd)
-                while (isRunning && vpnInterface != null) {
-                    try {
-                        val packet = outputQueue.poll(500, TimeUnit.MILLISECONDS)
-                        if (packet != null) synchronized(output) { output.write(packet) }
-                    } catch (e: Exception) {}
+            try {
+                if (outputExecutor?.isShutdown == false) {
+                    outputExecutor?.execute {
+                        val fd = vpnInterface?.fileDescriptor ?: return@execute
+                        val output = FileOutputStream(fd)
+                        while (isRunning && vpnInterface != null) {
+                            try {
+                                val packet = outputQueue.poll(500, TimeUnit.MILLISECONDS)
+                                if (packet != null) synchronized(output) { output.write(packet) }
+                            } catch (e: Exception) {}
+                        }
+                    }
                 }
-            }
+            } catch (e: RejectedExecutionException) {}
             Thread { runLoop() }.start()
         } catch (e: Exception) { stopVpn() }
     }
 
     private fun runLoop() {
-        val input = FileInputStream(vpnInterface!!.fileDescriptor)
+        val fd = vpnInterface?.fileDescriptor ?: return
+        val input = FileInputStream(fd)
         val buffer = ByteBuffer.allocate(32767)
         while (isRunning && vpnInterface != null) {
             try {
@@ -148,74 +232,164 @@ class AdBlockVpnService : VpnService() {
                 if (length <= 0) continue
                 
                 val packet = ByteBuffer.wrap(buffer.array(), 0, length)
-                val protocol = packet.get(9).toInt() and 0xFF
+                val firstByte = packet.get(0).toInt() and 0xFF
+                val version = firstByte shr 4
                 
-                if (protocol == 17) { // UDP
-                    val ipHeaderLen = (packet.get(0).toInt() and 0x0F) * 4
-                    val dstPort = packet.getShort(ipHeaderLen + 2).toInt() and 0xFFFF
-                    if (dstPort == 53) {
-                        val packetCopy = ByteArray(length); System.arraycopy(buffer.array(), 0, packetCopy, 0, length)
-                        executor?.execute { handleDnsRequest(ByteBuffer.wrap(packetCopy)) }
+                if (version == 4) {
+                    val protocol = packet.get(9).toInt() and 0xFF
+                    if (protocol == 17) { // UDP
+                        val ipHeaderLen = (firstByte and 0x0F) * 4
+                        val dstPort = packet.getShort(ipHeaderLen + 2).toInt() and 0xFFFF
+                        if (dstPort == 53) {
+                            val packetCopy = ByteArray(length); System.arraycopy(buffer.array(), 0, packetCopy, 0, length)
+                            try {
+                                if (executor?.isShutdown == false) {
+                                    executor?.execute { handleDnsRequest(ByteBuffer.wrap(packetCopy), ipHeaderLen) }
+                                }
+                            } catch (e: RejectedExecutionException) {}
+                        }
+                    }
+                } else if (version == 6) {
+                    val nextHeader = packet.get(6).toInt() and 0xFF
+                    if (nextHeader == 17) { // UDP
+                        val ipHeaderLen = 40
+                        val dstPort = packet.getShort(ipHeaderLen + 2).toInt() and 0xFFFF
+                        if (dstPort == 53) {
+                            val packetCopy = ByteArray(length); System.arraycopy(buffer.array(), 0, packetCopy, 0, length)
+                            try {
+                                if (executor?.isShutdown == false) {
+                                    executor?.execute { forwardOriginalQueryFailSafe(ByteBuffer.wrap(packetCopy), ipHeaderLen) }
+                                }
+                            } catch (e: RejectedExecutionException) {}
+                        }
                     }
                 }
             } catch (e: Exception) {}
         }
     }
 
-    private fun handleDnsRequest(packet: ByteBuffer) {
+    private fun handleDnsRequest(packet: ByteBuffer, ipHeaderLen: Int) {
         try {
-            val ipHeaderLen = (packet.get(0).toInt() and 0x0F) * 4
+            val dnsInfo = SimpleDnsParser.parse(packet, ipHeaderLen) ?: return
+            val domain = dnsInfo.domain.lowercase().trimEnd('.')
+            
+            // --- STRATEGI KONTEKSTUAL (SMART FILTERING) ---
+            
+            // 1. Identifikasi Aplikasi Pengirim Dahulu
             val srcPort = packet.getShort(ipHeaderLen).toInt() and 0xFFFF
+            val appInfo = identifyAppFast(srcPort, packet)
+            val category = uidCategoryCache[appInfo.first] ?: AppCategory.GENERAL
             
-            val dnsInfo = SimpleDnsParser.parse(packet) ?: return
-            val domain = dnsInfo.domain.lowercase()
-            
-            // 1. Cek Cache
-            val cachedResponse = dnsCache[domain]
-            if (cachedResponse != null && (System.currentTimeMillis() - cachedResponse.second < CACHE_TTL)) {
-                val patchedPayload = cachedResponse.first.copyOf()
-                patchedPayload[0] = dnsInfo.payload[0]
-                patchedPayload[1] = dnsInfo.payload[1]
-                sendSimpleDnsPacket(packet, patchedPayload)
+            // 2. Cek Whitelist Dahulu (Prioritas Tertinggi)
+            if (filterEngine.isWhitelisted(domain)) {
+                forwardAndSendResponse(packet, dnsInfo, ipHeaderLen, "SYSTEM", "PASS (Whitelisted)")
                 return
             }
 
-            // 2. Filter Iklan
-            if (filterEngine.isAd(domain)) {
-                SimpleDnsParser.createNullIpResponse(packet).let { res -> outputQueue.offer(res) }
-                updateNotificationCounter()
-                executor?.execute {
-                    val appInfo = identifyApp(srcPort, packet, domain)
-                    addLog("${System.currentTimeMillis()}|$domain|AD_ENGINE|BLOCKED|${appInfo.first}|${appInfo.second}")
-                }
-            } else {
-                // 3. Forward Query
-                executor?.execute {
-                    forwardQueryShared(dnsInfo.payload)?.let { res ->
-                        dnsCache[domain] = Pair(res, System.currentTimeMillis())
-                        sendSimpleDnsPacket(packet, res)
-                        
-                        val appInfo = identifyApp(srcPort, packet, domain)
-                        addLog("${System.currentTimeMillis()}|$domain|DNS_QUERY|ALLOWED|${appInfo.first}|${appInfo.second}")
-                    }
-                }
+            // 3. Cek DNS Cache
+            val cachedResponse = dnsCache[domain]
+            if (cachedResponse != null && (System.currentTimeMillis() - cachedResponse.second < CACHE_TTL)) {
+                sendCachedResponse(packet, cachedResponse.first, dnsInfo, ipHeaderLen)
+                return
             }
+
+            // 4. Keputusan Blokir Kontekstual
+            // Jika aplikasi adalah GAME, kita hanya memblokir domain yang masuk kategori Hard-Ads.
+            // Jika aplikasi adalah GENERAL (Browser, dll), kita blokir agresif.
+            if (filterEngine.shouldBlock(domain, category)) {
+                // Gunakan NXDOMAIN untuk Game agar app segera fallback/ignore, Null IP untuk lainnya
+                val res = SimpleDnsParser.createNxDomainResponse(packet, ipHeaderLen)
+                outputQueue.offer(res)
+                updateNotificationCounter()
+                
+                addLog("${System.currentTimeMillis()}|$domain|FILTER|BLOCKED|${appInfo.second}|${appInfo.third}")
+                return
+            }
+
+            // 5. Jika lolos, Forward segera
+            forwardAndSendResponse(packet, dnsInfo, ipHeaderLen, "GENERAL", "ALLOWED")
+
         } catch (e: Exception) {
-            Log.e(TAG, "DNS Handle Error", e)
+            Log.e(TAG, "DNS Handle Error (Fail-Safe Triggered)", e)
+            forwardOriginalQueryFailSafe(packet, ipHeaderLen)
         }
     }
 
-    private fun identifyApp(srcPort: Int, packet: ByteBuffer, domain: String): Pair<String, String> {
-        val srcIp = getSourceIp(packet)
-        val destIp = getDestIp(packet)
-        val uid = getUidForPort(srcPort, srcIp, destIp)
-        
-        val pkg = if (uid <= 0) {
-            filterEngine.findPackageFromDomain(domain) ?: "unknown.system"
-        } else {
-            getPackageNameFromUid(uid)
+    private fun forwardAndSendResponse(packet: ByteBuffer, dnsInfo: SimpleDnsParser.DnsInfo, ipHeaderLen: Int, category: String, action: String) {
+        try {
+            if (executor?.isShutdown == false) {
+                executor?.execute {
+                    forwardQueryShared(dnsInfo.payload)?.let { res ->
+                        if (action == "ALLOWED") dnsCache[dnsInfo.domain] = Pair(res, System.currentTimeMillis())
+                        sendSimpleDnsPacket(packet, res, ipHeaderLen)
+                        asyncLog(packet, dnsInfo.domain, ipHeaderLen, category, action)
+                    }
+                }
+            }
+        } catch (e: RejectedExecutionException) {
+            Log.w(TAG, "Task rejected during shutdown")
         }
-        return Pair(pkg, getAppNameFromPackage(pkg))
+    }
+
+    private fun sendCachedResponse(packet: ByteBuffer, cachedPayload: ByteArray, dnsInfo: SimpleDnsParser.DnsInfo, ipHeaderLen: Int) {
+        val patchedPayload = cachedPayload.copyOf()
+        patchedPayload[0] = dnsInfo.payload[0]
+        patchedPayload[1] = dnsInfo.payload[1]
+        sendSimpleDnsPacket(packet, patchedPayload, ipHeaderLen)
+    }
+
+    private fun asyncLog(packet: ByteBuffer, domain: String, ipHeaderLen: Int, category: String, action: String) {
+        val srcPort = packet.getShort(ipHeaderLen).toInt() and 0xFFFF
+        val packetCopy = ByteBuffer.allocate(packet.limit())
+        packet.rewind(); packetCopy.put(packet); packet.rewind()
+        
+        try {
+            if (executor?.isShutdown == false) {
+                executor?.execute {
+                    val appInfo = identifyAppFast(srcPort, packetCopy)
+                    addLog("${System.currentTimeMillis()}|$domain|$category|$action|${appInfo.second}|${appInfo.third}")
+                }
+            }
+        } catch (e: RejectedExecutionException) {
+            Log.w(TAG, "Log task rejected during shutdown")
+        }
+    }
+
+    private fun identifyAppFast(srcPort: Int, packet: ByteBuffer): Triple<Int, String, String> {
+        val now = System.currentTimeMillis()
+        val cached = portUidCache[srcPort]
+        
+        val uid = if (cached != null && (now - cached.timestamp < PORT_CACHE_TTL)) {
+            cached.uid
+        } else {
+            val srcIp = getSourceIp(packet)
+            val destIp = getDestIp(packet)
+            val resolvedUid = getUidForPort(srcPort, srcIp, destIp)
+            
+            // Cache hasil, bahkan jika -1 (dengan TTL lebih singkat untuk -1)
+            val ttl = if (resolvedUid > 0) PORT_CACHE_TTL else 5000L // 5 detik untuk unknown
+            portUidCache[srcPort] = UidEntry(resolvedUid, now)
+            resolvedUid
+        }
+        
+        val pkg = getPackageNameFromUid(uid)
+        val name = getAppNameFromPackage(pkg)
+        return Triple(uid, pkg, name)
+    }
+
+    private fun forwardOriginalQueryFailSafe(packet: ByteBuffer, ipHeaderLen: Int) {
+        try {
+            val dnsInfo = SimpleDnsParser.parse(packet, ipHeaderLen) ?: return
+            try {
+                if (executor?.isShutdown == false) {
+                    executor?.execute {
+                        forwardQueryShared(dnsInfo.payload)?.let { res ->
+                            sendSimpleDnsPacket(packet, res, ipHeaderLen)
+                        }
+                    }
+                }
+            } catch (e: RejectedExecutionException) {}
+        } catch (e: Exception) {}
     }
 
     private fun forwardQueryShared(payload: ByteArray): ByteArray? {
@@ -242,8 +416,8 @@ class AdBlockVpnService : VpnService() {
         } catch (e: Exception) { null }
     }
 
-    private fun sendSimpleDnsPacket(request: ByteBuffer, payload: ByteArray) {
-        SimpleDnsParser.createResponsePacket(request, payload).let { res -> outputQueue.offer(res) }
+    private fun sendSimpleDnsPacket(request: ByteBuffer, payload: ByteArray, ipHeaderLen: Int) {
+        SimpleDnsParser.createResponsePacket(request, payload, ipHeaderLen).let { res -> outputQueue.offer(res) }
     }
 
     private fun getSourceIp(packet: ByteBuffer): String {
@@ -286,7 +460,11 @@ class AdBlockVpnService : VpnService() {
         val now = System.currentTimeMillis()
         if (now - lastNotificationUpdate > 5000) {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            executor?.execute { try { nm.notify(NOTIFICATION_ID, createNotification()) } catch (e: Exception) {} }
+            try {
+                if (executor?.isShutdown == false) {
+                    executor?.execute { try { nm.notify(NOTIFICATION_ID, createNotification()) } catch (e: Exception) {} }
+                }
+            } catch (e: RejectedExecutionException) {}
             lastNotificationUpdate = now
         }
     }

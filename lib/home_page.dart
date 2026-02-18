@@ -13,7 +13,7 @@ import 'package:zeroad/ui/widgets/app_icon.dart';
 import 'package:zeroad/ui/tabs/shield_tab.dart';
 import 'package:zeroad/ui/tabs/activity_tab.dart';
 import 'package:zeroad/ui/tabs/scanner_tab.dart';
-import 'package:zeroad/threat_detail_page.dart';
+
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -202,7 +202,15 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
         const SizedBox(width: 12),
         Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey)),
         const Spacer(),
-        Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+        Flexible(
+          child: Text(
+            value, 
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.right,
+          ),
+        ),
       ],
     );
   }
@@ -261,17 +269,20 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                                 lastUpdate: security.lastBlocklistUpdate,
                                 isUpdating: security.isUpdatingBlocklist,
                                 onUpdate: security.updateDynamicBlocklist,
-                              ),              ActivityTab(
-                vpnLogs: security.vpnLogs,
-                trustedPackages: security.trustedPackages,
-                isAdBlockActive: security.isAdBlockActive,
-                logFilter: security.logFilter,
-                l10n: l10n,
-                onFilterChanged: security.setLogFilter,
-                onClearLogs: security.clearLogs,
-                onShowAppDetails: (name, pkg, logs) => _showAppDetails(context, security, name, pkg, logs),
-                onRemoveFromWhitelist: security.removeFromWhitelist,
-              ),
+                              ),                ActivityTab(
+                  vpnLogs: security.vpnLogs,
+                  trustedPackages: security.trustedPackages,
+                  isAdBlockActive: security.isAdBlockActive,
+                  logFilter: security.logFilter,
+                  groupedLogs: security.groupedLogs,
+                  appNames: security.appNames,
+                  sortedPkgKeys: security.sortedPkgKeys,
+                  l10n: l10n,
+                  onFilterChanged: security.setLogFilter,
+                  onClearLogs: security.clearLogs,
+                  onShowAppDetails: (name, pkg, logs) => _showAppDetails(context, security, name, pkg, logs),
+                  onRemoveFromWhitelist: security.removeFromWhitelist,
+                ),
             ],
           ),
           bottomNavigationBar: NavigationBar(
@@ -338,6 +349,28 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                     },
                   ),
                 ),
+                if (packageName == "com.android.system" || packageName.startsWith("system.uid"))
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primaryContainer.withAlpha(50),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Theme.of(context).colorScheme.primaryContainer),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 20, color: Theme.of(context).colorScheme.primary),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            "Layanan sistem ini mencoba mengirim data analitik atau iklan. Memblokirnya membantu menjaga privasi & baterai Anda secara aman.",
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 TabBar(
                   dividerColor: Colors.transparent,
                   indicatorSize: TabBarIndicatorSize.label,
@@ -408,7 +441,7 @@ class _MyHomePageState extends State<MyHomePage> with SingleTickerProviderStateM
                 ],
               )
             : const Icon(Icons.block, color: Colors.red, size: 22),
-          title: Text(domain, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: -0.2)),
+          title: Text(domain, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: -0.2), maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: Text(type, style: const TextStyle(fontSize: 10, color: Colors.grey)),
           trailing: isSafe 
             ? const Icon(Icons.bolt, color: Colors.amber, size: 14) // Menandakan jalur cepat/ISP Direct

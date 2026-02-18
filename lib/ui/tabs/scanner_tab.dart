@@ -144,7 +144,13 @@ class ScannerTab extends StatelessWidget {
       child: Column(
         children: [
           isScanning 
-            ? const SizedBox(height: 80, width: 80, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 6))
+            ? const RepaintBoundary(
+                child: SizedBox(
+                  height: 80, 
+                  width: 80, 
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 6)
+                ),
+              )
             : Icon(icon, size: 80, color: Colors.white),
           const SizedBox(height: 24),
           Text(title, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
@@ -190,12 +196,14 @@ class ScannerTab extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 24),
           const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-              Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant), maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
           )
         ],
       ),
@@ -237,13 +245,20 @@ class ScannerTab extends StatelessWidget {
             children: [
               Icon(icon, color: color, size: 18),
               const SizedBox(width: 8),
-              Text(title, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16)),
-              const Spacer(),
+              Expanded(
+                child: Text(
+                  title, 
+                  style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
               Text("${apps.length}", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
             ],
           ),
           const SizedBox(height: 12),
-          ...apps.map((app) => _buildThreatItem(context, app)).toList(),
+          ...apps.map((app) => _buildThreatItem(context, app)),
         ],
       ),
     );
@@ -260,7 +275,7 @@ class ScannerTab extends StatelessWidget {
       child: ListTile(
         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => ThreatDetailPage(appThreatInfo: app))).then((_) => onRefresh()),
         leading: AppIcon(packageName: app.packageName, size: 48),
-        title: Text(app.appName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+        title: Text(app.appName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15), maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text(app.packageName, style: const TextStyle(fontSize: 11, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis),
         trailing: const Icon(Icons.chevron_right_rounded, size: 20),
       ),

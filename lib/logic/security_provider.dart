@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart'; // For compute
-import 'package:flutter/material.dart';
+
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zeroad/models.dart';
@@ -39,6 +39,11 @@ class SecurityProvider with ChangeNotifier {
   ScanResultModel? _lastScanResult;
   bool _isScanning = false;
   String _logFilter = 'ALL';
+  
+  // Performance optimized state
+  final Map<String, List<String>> _groupedLogs = {};
+  final Map<String, String> _appNames = {};
+  List<String> _sortedPkgKeys = [];
 
   // Dynamic Blocklist State
   final BlocklistService _blocklistService = BlocklistService();
@@ -55,6 +60,10 @@ class SecurityProvider with ChangeNotifier {
   bool get isScanning => _isScanning;
   String get logFilter => _logFilter;
   
+  Map<String, List<String>> get groupedLogs => _groupedLogs;
+  Map<String, String> get appNames => _appNames;
+  List<String> get sortedPkgKeys => _sortedPkgKeys;
+  
   int get blockedDomainsCount => _blockedDomainsCount;
   int get autoWhitelistedCount => _autoWhitelistedCount;
   DateTime? get lastBlocklistUpdate => _lastBlocklistUpdate;
@@ -62,7 +71,7 @@ class SecurityProvider with ChangeNotifier {
 
   StreamSubscription? _nativeSub;
 
-  List<String> _pendingLogs = [];
+  final List<String> _pendingLogs = [];
   Timer? _batchTimer;
 
   /// Inisialisasi awal: Memuat data dari storage dan mendengarkan stream log.
@@ -99,22 +108,51 @@ class SecurityProvider with ChangeNotifier {
         
         for (var log in _pendingLogs.reversed) {
           final parts = log.split('|');
-          if (parts.length > 1) {
+          if (parts.length > 5) {
             final currentDomain = parts[1];
             if (currentDomain != lastDomain) {
               newLogs.add(log);
               lastDomain = currentDomain;
+
+              // Pre-process for ActivityTab
+              final pkg = parts[4];
+              final name = parts[5];
+              
+              _groupedLogs.putIfAbsent(pkg, () => []).add(log);
+              _appNames[pkg] = name;
             }
           }
         }
 
         _vpnLogs.insertAll(0, newLogs);
-        if (_vpnLogs.length > 300) _vpnLogs = _vpnLogs.sublist(0, 300);
+        if (_vpnLogs.length > 300) {
+           _vpnLogs = _vpnLogs.sublist(0, 300);
+           // Prune grouped logs when vpnLogs are pruned
+           _rebuildGroupedLogs();
+        } else {
+           _sortedPkgKeys = _groupedLogs.keys.toList();
+        }
         
         _pendingLogs.clear();
         notifyListeners(); 
       }
     });
+  }
+
+  /// Rebuilds grouped logs from the main vpnLogs list to keep things in sync after pruning.
+  void _rebuildGroupedLogs() {
+    _groupedLogs.clear();
+    _appNames.clear();
+    for (var log in _vpnLogs) {
+      final parts = log.split('|');
+      if (parts.length > 5) {
+        final pkg = parts[4];
+        final name = parts[5];
+        _groupedLogs.putIfAbsent(pkg, () => []).add(log);
+        _appNames[pkg] = name;
+      }
+    }
+    _sortedPkgKeys = _groupedLogs.keys.toList();
   }
 
   // --- VPN Actions ---
@@ -221,6 +259,9 @@ class SecurityProvider with ChangeNotifier {
 
   void clearLogs() {
     _vpnLogs.clear();
+    _groupedLogs.clear();
+    _appNames.clear();
+    _sortedPkgKeys.clear();
     notifyListeners();
   }
 

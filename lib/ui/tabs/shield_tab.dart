@@ -39,36 +39,38 @@ class ShieldTab extends StatelessWidget {
 
     return SingleChildScrollView(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 40),
+        padding: const EdgeInsets.symmetric(vertical: 24),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             AnimatedBuilder(
               animation: glowAnimation,
               builder: (context, staticChild) {
-                return Container(
-                  height: 240,
-                  width: 240,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: isActive ? activeColor.withAlpha(30) : inactiveColor.withAlpha(20),
-                    border: Border.all(color: isActive ? activeColor : inactiveColor, width: 4),
-                    boxShadow: isActive 
-                      ? [
-                          BoxShadow(
-                            color: activeColor.withAlpha(80), 
-                            blurRadius: glowAnimation.value, 
-                            spreadRadius: glowAnimation.value / 4
-                          ),
-                          BoxShadow(
-                            color: activeColor.withAlpha(40), 
-                            blurRadius: glowAnimation.value * 2, 
-                            spreadRadius: glowAnimation.value / 2
-                          )
-                        ] 
-                      : [],
+                return RepaintBoundary(
+                  child: Container(
+                    height: 220,
+                    width: 220,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isActive ? activeColor.withAlpha(30) : inactiveColor.withAlpha(20),
+                      border: Border.all(color: isActive ? activeColor : inactiveColor, width: 4),
+                      boxShadow: isActive 
+                        ? [
+                            BoxShadow(
+                              color: activeColor.withAlpha(80), 
+                              blurRadius: glowAnimation.value, 
+                              spreadRadius: glowAnimation.value / 4
+                            ),
+                            BoxShadow(
+                              color: activeColor.withAlpha(40), 
+                              blurRadius: glowAnimation.value * 2, 
+                              spreadRadius: glowAnimation.value / 2
+                            )
+                          ] 
+                        : [],
+                    ),
+                    child: staticChild,
                   ),
-                  child: staticChild,
                 );
               },
               child: Column(
@@ -92,7 +94,7 @@ class ShieldTab extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 24),
             Text(
               isActive ? l10n.protectionActive : l10n.protectionDisabled, 
               textAlign: TextAlign.center, 
@@ -107,10 +109,10 @@ class ShieldTab extends StatelessWidget {
                 style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 14)
               ),
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 24),
             SizedBox(
               width: 220,
-              height: 64,
+              height: 56,
               child: ElevatedButton.icon(
                 onPressed: onToggle,
                 icon: Icon(isActive ? Icons.power_settings_new : Icons.play_arrow_rounded),
@@ -126,7 +128,7 @@ class ShieldTab extends StatelessWidget {
             ),
             
             // --- Info Database ---
-            const SizedBox(height: 40),
+            const SizedBox(height: 24),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Container(
@@ -142,8 +144,15 @@ class ShieldTab extends StatelessWidget {
                       children: [
                         Icon(Icons.storage_rounded, size: 20, color: colorScheme.primary),
                         const SizedBox(width: 12),
-                        Text(l10n.databaseStatus, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                        const Spacer(),
+                        Expanded(
+                          child: Text(
+                            l10n.databaseStatus, 
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
                         if (isUpdating)
                           const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                         else
@@ -160,18 +169,20 @@ class ShieldTab extends StatelessWidget {
                     ),
                     const Divider(height: 32),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        _buildInfoColumn(l10n.domainsBlocked, "$blockedCount", colorScheme),
+                        Expanded(child: _buildInfoColumn(l10n.domainsBlocked, "$blockedCount", colorScheme)),
                         Container(width: 1, height: 30, color: colorScheme.outlineVariant),
-                        _buildInfoColumn(l10n.intelligenceDomains, "$safeCount", colorScheme),
+                        Expanded(child: _buildInfoColumn(l10n.intelligenceDomains, "$safeCount", colorScheme)),
                         Container(width: 1, height: 30, color: colorScheme.outlineVariant),
-                        _buildInfoColumn(
-                          l10n.lastUpdate, 
-                          lastUpdate != null 
-                            ? "${lastUpdate!.day}/${lastUpdate!.month} ${lastUpdate!.hour.toString().padLeft(2, '0')}:${lastUpdate!.minute.toString().padLeft(2, '0')}"
-                            : l10n.neverUpdated, 
-                          colorScheme
+                        Expanded(
+                          flex: 2,
+                          child: _buildInfoColumn(
+                            l10n.lastUpdate, 
+                            lastUpdate != null 
+                              ? "${lastUpdate!.day}/${lastUpdate!.month} ${lastUpdate!.hour.toString().padLeft(2, '0')}:${lastUpdate!.minute.toString().padLeft(2, '0')}"
+                              : l10n.neverUpdated, 
+                            colorScheme
+                          ),
                         ),
                       ],
                     ),
@@ -188,9 +199,9 @@ class ShieldTab extends StatelessWidget {
   Widget _buildInfoColumn(String label, String value, ColorScheme colorScheme) {
     return Column(
       children: [
-        Text(label, style: TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500)),
+        Text(label, style: TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
         const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
+        Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900), maxLines: 1, overflow: TextOverflow.ellipsis),
       ],
     );
   }

@@ -22,6 +22,8 @@ class BlocklistService {
     'android.com', 'play.google.com', 'whatsapp.net', 'whatsapp.com',
     'facebook.com', 'fbcdn.net', 'instagram.com', 'apple.com', 'icloud.com',
     'github.com', 'githubusercontent.com', 'adjust.com', 'adjust.world', 'adjust.in',
+    'unity3d.com', 'unity.com', 'epicgames.com', 'unrealengine.com',
+    'akamaihd.net', 'cloudfront.net', 'photonengine.io', 'photonengine.com',
   ];
 
   Future<bool> updateBlocklist() async {

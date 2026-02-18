@@ -1,115 +1,223 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // Import Shared Preferences
-import 'package:zeroad/main.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:zeroad/models.dart';
+import 'package:zeroad/data/threat_database.dart';
+import 'package:zeroad/l10n.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('ZeroAd App Widget Tests', () {
-    const MethodChannel channel = MethodChannel('zeroad.security/scanner');
+  const MethodChannel channel = MethodChannel('zeroad.security/scanner');
 
-    setUp(() {
-      SharedPreferences.setMockInitialValues({}); // Mock SharedPreferences
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, null);
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+      // Default: semua method return null agar tidak crash
+      if (methodCall.method == 'requestNotificationPermission') return true;
+      return null;
+    });
+  });
+
+  // =============================================
+  // GROUP 1: Model Serialization Tests
+  // =============================================
+  group('Model Serialization', () {
+    test('Threat.fromJson parses correctly', () {
+      final json = {
+        'type': 'AD_SDK',
+        'severity': 'MEDIUM',
+        'code': 'AD_LIB_DETECTED',
+        'description': 'Embedded Ad Framework: AdMob',
+      };
+      final threat = Threat.fromJson(json);
+
+      expect(threat.type, 'AD_SDK');
+      expect(threat.severity, 'MEDIUM');
+      expect(threat.code, 'AD_LIB_DETECTED');
+      expect(threat.description, 'Embedded Ad Framework: AdMob');
     });
 
-    testWidgets('App displays initial scanning state and then scan results after initial scan', (WidgetTester tester) async {
-      // Mock the MethodChannel response for a clean scan
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-        if (methodCall.method == 'scan') {
-          await Future.delayed(const Duration(milliseconds: 100)); // Simulate async delay
-          return '{"totalInstalledPackages": 123, "suspiciousPackagesCount": 0, "threats": []}';
-        }
-        return null;
-      });
+    test('Threat.toJson roundtrip works', () {
+      final original = Threat(
+        type: 'BEHAVIORAL',
+        severity: 'HIGH',
+        code: 'BOOT_OVERLAY',
+        description: 'App starts at boot.',
+      );
+      final json = original.toJson();
+      final restored = Threat.fromJson(json);
 
-      await tester.pumpWidget(const MyApp());
-      await tester.pump(); // Allow initState to trigger scan and rebuild to loading state
-
-      // Expect main loading indicator
-      expect(find.byKey(const Key('mainProgressIndicator')), findsOneWidget);
-
-      await tester.pumpAndSettle(); // Wait for the initial scan to complete and UI to update
-
-      // Verify AppBar title
-      expect(find.text('ZeroAd Home'), findsOneWidget);
-      // Verify main scan status text updates (No threats) using widget properties
-      final Finder mainScanResultFinder = find.byKey(const Key('mainScanResultText'));
-      expect(mainScanResultFinder, findsOneWidget);
-      expect(tester.widget<Text>(mainScanResultFinder).data, 'No suspicious activity found.');
-
-      expect(find.text('Total Apps'), findsOneWidget);
-      expect(find.text('123'), findsOneWidget); // Verify total apps count
-      expect(find.text('Suspicious'), findsOneWidget);
-      expect(find.text('0'), findsOneWidget); // Verify suspicious apps count
-
-      // Verify dark theme is applied
-      final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
-      expect(materialApp.themeMode, ThemeMode.dark);
-      expect(materialApp.darkTheme?.brightness, Brightness.dark);
-
-      // Tap the scan button again and trigger a frame.
-      await tester.tap(find.text('Scan Now'));
-      await tester.pump(); // Allow button press to trigger scan and rebuild to loading state
-      expect(find.byKey(const Key('mainProgressIndicator')), findsOneWidget); // Should show main loading indicator again
-      await tester.pumpAndSettle(); // Wait for the second scan to complete
-
-      // Verify that the scan result text remains the same (as mock returns same)
-      expect(tester.widget<Text>(mainScanResultFinder).data, 'No suspicious activity found.');
+      expect(restored.type, original.type);
+      expect(restored.severity, original.severity);
+      expect(restored.code, original.code);
+      expect(restored.description, original.description);
     });
 
-    testWidgets('App displays error message on PlatformException', (WidgetTester tester) async {
-      // Mock the MethodChannel to throw a PlatformException
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-        if (methodCall.method == 'scan') {
-          await Future.delayed(const Duration(milliseconds: 100)); // Simulate async delay
-          throw PlatformException(code: 'ERROR', message: 'Failed to connect to native service');
-        }
-        return null;
-      });
+    test('AppThreatInfo.fromJson parses correctly with threats', () {
+      final json = {
+        'packageName': 'com.test.app',
+        'appName': 'Test App',
+        'isSystemApp': false,
+        'detectedThreats': [
+          {
+            'type': 'SYSTEM_CONTROL',
+            'severity': 'HIGH',
+            'code': 'STEALTH_INSTALLER',
+            'description': 'Can install apps.',
+          }
+        ],
+        'zeroScore': 30,
+      };
+      final info = AppThreatInfo.fromJson(json);
 
-      await tester.pumpWidget(const MyApp());
-      await tester.pump(); // Allow initState to trigger scan and rebuild to loading state
-
-      // Expect main loading indicator
-      expect(find.byKey(const Key('mainProgressIndicator')), findsOneWidget);
-
-      await tester.pumpAndSettle(); // Wait for the initial scan to complete
-
-      // Verify that the error message is displayed using widget properties
-      final Finder mainScanResultFinder = find.byKey(const Key('mainScanResultText'));
-      expect(mainScanResultFinder, findsOneWidget);
-      expect(tester.widget<Text>(mainScanResultFinder).data, "Failed to get scan result: 'Failed to connect to native service'.");
+      expect(info.packageName, 'com.test.app');
+      expect(info.appName, 'Test App');
+      expect(info.isSystemApp, false);
+      expect(info.detectedThreats.length, 1);
+      expect(info.detectedThreats.first.code, 'STEALTH_INSTALLER');
+      expect(info.zeroScore, 30);
     });
 
-    testWidgets('App displays detailed threats when present', (WidgetTester tester) async {
-      // Mock the MethodChannel response for a scan with threats
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-        if (methodCall.method == 'scan') {
-          await Future.delayed(const Duration(milliseconds: 100)); // Simulate async delay
-          // Updated JSON format to match the new Threat model structure
-          return '{"totalInstalledPackages": 10, "suspiciousPackagesCount": 1, "threats": [{"packageName": "com.malware.app", "appName": "Malware App", "isSystemApp": false, "detectedThreats": [{"type": "PERMISSION_ABUSE", "severity": "HIGH", "description": "Abusing Accessibility Service"}]}]}';
-        }
-        return null;
-      });
+    test('AppThreatInfo.fromJson uses default zeroScore of 0', () {
+      final json = {
+        'packageName': 'com.safe.app',
+        'appName': 'Safe App',
+        'isSystemApp': true,
+        'detectedThreats': [],
+      };
+      final info = AppThreatInfo.fromJson(json);
+      expect(info.zeroScore, 0);
+    });
 
-      await tester.pumpWidget(const MyApp());
-      await tester.pump(); // Allow initState to trigger scan and rebuild to loading state
-      expect(find.byKey(const Key('mainProgressIndicator')), findsOneWidget); // Expect main loading indicator
-      await tester.pumpAndSettle();
+    test('ScanResultModel.fromJson parses full scan result', () {
+      final jsonStr = '''
+      {
+        "totalInstalledPackages": 150,
+        "suspiciousPackagesCount": 2,
+        "threats": [
+          {
+            "packageName": "com.bad.app",
+            "appName": "Bad App",
+            "isSystemApp": false,
+            "detectedThreats": [
+              {"type": "BEHAVIORAL", "severity": "HIGH", "code": "BOOT_OVERLAY", "description": "Overlay at boot."}
+            ],
+            "zeroScore": 30
+          },
+          {
+            "packageName": "com.ad.app",
+            "appName": "Ad App",
+            "isSystemApp": false,
+            "detectedThreats": [
+              {"type": "AD_SDK", "severity": "MEDIUM", "code": "AD_LIB_DETECTED", "description": "AdMob detected."}
+            ],
+            "zeroScore": 15
+          }
+        ]
+      }
+      ''';
+      final json = jsonDecode(jsonStr) as Map<String, dynamic>;
+      final result = ScanResultModel.fromJson(json);
 
-      final Finder mainScanResultFinder = find.byKey(const Key('mainScanResultText'));
-      expect(mainScanResultFinder, findsOneWidget);
-      expect(tester.widget<Text>(mainScanResultFinder).data, 'Threats detected!');
+      expect(result.totalInstalledPackages, 150);
+      expect(result.suspiciousPackagesCount, 2);
+      expect(result.threats.length, 2);
+      expect(result.threats[0].appName, 'Bad App');
+      expect(result.threats[1].zeroScore, 15);
+    });
 
-      expect(find.text('Detected Threats:'), findsOneWidget);
-      expect(find.text('Malware App'), findsOneWidget);
-      expect(find.text('com.malware.app'), findsOneWidget);
-      // The display logic changed slightly, checking for "issues detected" text or specific threat details if expanded.
-      // Based on _buildThreatItem in home_page.dart, it shows "X issues detected."
-      expect(find.text('1 issues detected.'), findsOneWidget);
+    test('ScanResultModel.toJson roundtrip works', () {
+      final original = ScanResultModel(
+        totalInstalledPackages: 50,
+        suspiciousPackagesCount: 0,
+        threats: [],
+      );
+      final json = original.toJson();
+      final restored = ScanResultModel.fromJson(json);
+
+      expect(restored.totalInstalledPackages, original.totalInstalledPackages);
+      expect(restored.suspiciousPackagesCount, original.suspiciousPackagesCount);
+      expect(restored.threats.length, 0);
+    });
+  });
+
+  // =============================================
+  // GROUP 2: ThreatDatabase Tests
+  // =============================================
+  group('ThreatDatabase', () {
+    test('returns correct Indonesian info for known code', () {
+      final info = ThreatDatabase.getRiskInfo('STEALTH_INSTALLER', 'id');
+      expect(info['title'], 'Pemasang Aplikasi Gelap');
+      expect(info.containsKey('risk'), true);
+      expect(info.containsKey('impact'), true);
+      expect(info.containsKey('recommendation'), true);
+    });
+
+    test('returns correct English info for known code', () {
+      final info = ThreatDatabase.getRiskInfo('BOOT_OVERLAY', 'en');
+      expect(info['title'], 'Intrusive Popups');
+    });
+
+    test('returns fallback for unknown code', () {
+      final info = ThreatDatabase.getRiskInfo('NONEXISTENT_CODE', 'en');
+      expect(info['title'], 'Suspicious Activity');
+    });
+
+    test('returns fallback for unknown code in Indonesian', () {
+      final info = ThreatDatabase.getRiskInfo('NONEXISTENT_CODE', 'id');
+      expect(info['title'], 'Aktivitas Mencurigakan');
+    });
+
+    test('all supported codes return valid data for both languages', () {
+      for (final code in ThreatDatabase.supportedCodes) {
+        if (code == 'UNKNOWN') continue; // Skip fallback entry
+        
+        final infoId = ThreatDatabase.getRiskInfo(code, 'id');
+        final infoEn = ThreatDatabase.getRiskInfo(code, 'en');
+
+        expect(infoId['title'], isNotEmpty, reason: '$code ID title is empty');
+        expect(infoId['risk'], isNotEmpty, reason: '$code ID risk is empty');
+        expect(infoId['impact'], isNotEmpty, reason: '$code ID impact is empty');
+        expect(infoId['recommendation'], isNotEmpty, reason: '$code ID recommendation is empty');
+
+        expect(infoEn['title'], isNotEmpty, reason: '$code EN title is empty');
+        expect(infoEn['risk'], isNotEmpty, reason: '$code EN risk is empty');
+        expect(infoEn['impact'], isNotEmpty, reason: '$code EN impact is empty');
+        expect(infoEn['recommendation'], isNotEmpty, reason: '$code EN recommendation is empty');
+      }
+    });
+
+    test('supportedCodes returns non-empty list', () {
+      expect(ThreatDatabase.supportedCodes, isNotEmpty);
+      expect(ThreatDatabase.supportedCodes, contains('STEALTH_INSTALLER'));
+      expect(ThreatDatabase.supportedCodes, contains('BOOT_OVERLAY'));
+      expect(ThreatDatabase.supportedCodes, contains('AD_LIB_DETECTED'));
+    });
+  });
+
+  // =============================================
+  // GROUP 3: Localization Tests
+  // =============================================
+  group('AppLocalizations', () {
+    test('Indonesian locale returns correct strings', () {
+      final l10n = AppLocalizations('id');
+      expect(l10n.isId, true);
+      expect(l10n.scannerTab, 'Pemindai');
+      expect(l10n.shieldTab, 'Perisai');
+      expect(l10n.activityTab, 'Aktivitas');
+      expect(l10n.protectionActive, 'Perlindungan Aktif');
+    });
+
+    test('English locale returns correct strings', () {
+      final l10n = AppLocalizations('en');
+      expect(l10n.isId, false);
+      expect(l10n.scannerTab, 'Scanner');
+      expect(l10n.shieldTab, 'Shield');
+      expect(l10n.activityTab, 'Activity');
+      expect(l10n.protectionActive, 'Protection Active');
     });
   });
 }

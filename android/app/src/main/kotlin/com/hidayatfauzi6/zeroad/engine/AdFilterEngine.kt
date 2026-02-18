@@ -11,8 +11,15 @@ import java.util.concurrent.ConcurrentHashMap
 @Serializable
 data class BypassListContainer(val bypass_packages: List<String>)
 
+enum class AppCategory {
+    GAME,
+    SYSTEM,
+    GENERAL
+}
+
 class AdFilterEngine(private val context: Context) {
     private val blockedDomains = HashSet<String>()
+    private val hardAdsDomains = HashSet<String>() // Khusus untuk kategori GAME
     private val autoWhitelistedDomains = HashSet<String>()
     private val autonomousEssentialApps = HashSet<String>()
     private val userWhitelistedApps = HashSet<String>()
@@ -24,48 +31,109 @@ class AdFilterEngine(private val context: Context) {
         "doh.pub", "doh.cleanbrowsing.org", "dns.adguard.com"
     )
 
+    // Whitelist Infrastruktur Kritis (Subdomain Specific)
     private val SYSTEM_WHITELIST = hashSetOf(
-        "google.com", "googleapis.com", "gstatic.com", "googleusercontent.com",
-        "whatsapp.net", "whatsapp.com", "facebook.com", "fbcdn.net",
-        "instagram.com", "android.com", "play.google.com", "drive.google.com",
-        "github.com", "githubusercontent.com", "adjust.com", "adjust.world", "adjust.in"
+        "google.com", "google.co.id", "googleapis.com", "gstatic.com", "googleusercontent.com",
+        "ggpht.com", "gvt1.com", "googlevideo.com", "googletagmanager.com",
+        "firebaseio.com", "firebaseinstallations.googleapis.com", "firebase.io",
+        "oauthaccountmanager.googleapis.com", "identitytoolkit.googleapis.com",
+        "play.googleapis.com", "play-fe.googleapis.com", "android.clients.google.com",
+        "payments.google.com", "checkout.google.com", "billing.google.com", "google-analytics.com",
+        "tuningclub.app", "twoheadedshark.com", "exitgames.com", "photonengine.io", "photonengine.com",
+        "apple.com", "itunes.apple.com", "icloud.com", "mzstatic.com",
+        "unity3d.com", "unity.com", "cloud.unity3d.com", "config.unity3d.com", 
+        "epicgames.com", "unrealengine.com", "akamaihd.net", "cloudfront.net",
+        "facebook.net", "fbcdn.net", "facebook.com", "adjust.com", "appsflyer.com",
+        "hoyoverse.com", "mihoyo.com", "starrails.com", "supercell.com", "moonton.com",
+        "roblox.com", "garena.com", "xboxlive.com", "playfab.com", "gameservices.google.com",
+        "azureedge.net", "akamaiedge.net", "discordapp.com", "discord.gg",
+        "shopee.co.id", "shopee.com", "shopeemobile.com", "tokopedia.com", "tokopedia.net",
+        "lazada.co.id", "lazada.com", "alicdn.com", "blibli.com", "bukalapak.com", "tiktokcdn.com",
+        "dana.id", "ovo.id", "klikbca.com", "bankmandiri.co.id", "bni.co.id", "bri.co.id",
+        "jenius.com", "jago.com", "neobank.co.id", "paypal.com", "wise.com"
     )
 
     fun loadBlocklists(prefs: SharedPreferences) {
         try {
             val newBlocked = HashSet<String>()
+            val newHardAds = HashSet<String>()
+            
             context.assets.open("hosts.txt").bufferedReader().useLines { lines ->
                 lines.forEach { line ->
-                    val parts = line.trim().split("\\s+".toRegex())
-                    val domain = if (parts.size > 1) parts[1] else parts[0]
-                    if (domain.isNotEmpty() && !domain.startsWith("#")) newBlocked.add(domain.lowercase())
+                    val domain = cleanDomain(line)
+                    if (domain.isNotEmpty()) {
+                        newBlocked.add(domain)
+                        // Identifikasi Hard-Ads untuk Game (Pola lebih ketat agar tidak salah blokir)
+                        if (isHardAdPattern(domain)) {
+                            newHardAds.add(domain)
+                        }
+                    }
                 }
             }
+            
             val dynamicPath = prefs.getString("dynamic_blocklist_path", null)
             if (dynamicPath != null) {
                 val dynamicFile = File(dynamicPath)
                 if (dynamicFile.exists()) {
-                    dynamicFile.bufferedReader().useLines { it.forEach { d -> if (d.isNotEmpty()) newBlocked.add(d.lowercase()) } }
+                    dynamicFile.bufferedReader().useLines { it.forEach { d -> 
+                        val cd = cleanDomain(d)
+                        if (cd.isNotEmpty()) {
+                            newBlocked.add(cd)
+                            if (isHardAdPattern(cd)) newHardAds.add(cd)
+                        }
+                    } }
                 }
             }
+            
             synchronized(blockedDomains) {
                 blockedDomains.clear()
                 blockedDomains.addAll(newBlocked)
             }
+            synchronized(hardAdsDomains) {
+                hardAdsDomains.clear()
+                hardAdsDomains.addAll(newHardAds)
+            }
+            
             buildKeywordMap()
+            
             val autoWhitePath = prefs.getString("auto_whitelist_path", null)
             if (autoWhitePath != null) {
                 val whiteFile = File(autoWhitePath)
                 if (whiteFile.exists()) {
                     val newWhite = HashSet<String>()
-                    whiteFile.bufferedReader().useLines { it.forEach { d -> if (d.isNotEmpty()) newWhite.add(d.lowercase()) } }
+                    whiteFile.bufferedReader().useLines { it.forEach { d -> 
+                        val cd = cleanDomain(d)
+                        if (cd.isNotEmpty()) newWhite.add(cd)
+                    } }
                     synchronized(autoWhitelistedDomains) {
                         autoWhitelistedDomains.clear()
                         autoWhitelistedDomains.addAll(newWhite)
                     }
                 }
             }
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            Log.e("AdFilterEngine", "Error loading blocklists", e)
+        }
+    }
+
+    private fun cleanDomain(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty() || trimmed.startsWith("#")) return ""
+        val parts = trimmed.split("\\s+".toRegex())
+        val domain = if (parts.size > 1) parts[1] else parts[0]
+        return domain.lowercase().trimEnd('.')
+    }
+
+    private fun isHardAdPattern(domain: String): Boolean {
+        // Pola yang HANYA digunakan oleh server iklan (Sangat Spesifik)
+        // Kita hindari memblokir domain 'config' atau 'settings' dari Unity/AdMob karena sering berisi fungsionalitas lain.
+        val hardAdKeywords = listOf(
+            "unityads.unity3d.com/v2/ads", "ads.prd.ie.unity3d.com", 
+            "googleads.g.doubleclick.net", "pagead2.googlesyndication.com",
+            "admob.google.com", "applovin.com/ad", "a.applovin.com",
+            "ads-pau.unity3d.com"
+        )
+        return hardAdKeywords.any { domain.contains(it) }
     }
 
     private fun buildKeywordMap() {
@@ -88,7 +156,8 @@ class AdFilterEngine(private val context: Context) {
 
     fun findPackageFromDomain(domain: String): String? {
         if (packageKeywordMap.isEmpty()) return null
-        val parts = domain.lowercase().split(".").filter { it.length > 3 }
+        val cleanDomain = domain.lowercase()
+        val parts = cleanDomain.split(".").filter { it.length > 3 }
         for (p in parts) { packageKeywordMap[p]?.let { return it } }
         return null
     }
@@ -123,21 +192,61 @@ class AdFilterEngine(private val context: Context) {
                pkg == "com.hidayatfauzi6.zeroad"
     }
 
-    fun isAd(domain: String): Boolean {
-        val ld = domain.lowercase()
-        // Cerdas: Jika Chrome mencoba DoH, blokir domain resolver-nya agar dia fallback ke UDP
-        if (DOH_DOMAINS.contains(ld)) return true
+    /**
+     * Smart Filtering Logic
+     * @param domain Domain yang diminta
+     * @param category Kategori aplikasi pengirim
+     */
+    fun shouldBlock(domain: String, category: AppCategory?): Boolean {
+        val ld = domain.lowercase().trimEnd('.')
         
-        if (SYSTEM_WHITELIST.any { ld == it || ld.endsWith(".$it") }) return false
-        if (autoWhitelistedDomains.contains(ld)) return false
-        synchronized(blockedDomains) {
-            if (blockedDomains.contains(ld)) return true
-            var p = ld
-            while (p.contains(".")) {
-                p = p.substringAfter(".")
-                if (blockedDomains.contains(p)) return true
+        // 1. Fast Track: DoH Blocking (Agar Chrome fallback)
+        if (DOH_DOMAINS.contains(ld)) return true
+
+        // 2. Fast Track: Critical System Whitelist (Recursive Suffix Match)
+        if (isWhitelisted(ld)) return false
+
+        // 3. Contextual Filtering
+        return when (category) {
+            AppCategory.GAME -> {
+                // Untuk Game: Hanya blokir jika ada di daftar Hard-Ads
+                matchRecursive(ld, hardAdsDomains)
             }
+            AppCategory.SYSTEM, null -> {
+                // Untuk System atau Unknown: Jangan blokir (PASS ON UNCERTAINTY)
+                false
+            }
+            AppCategory.GENERAL -> {
+                // Untuk Browser/Lainnya: Blokir Agresif
+                matchRecursive(ld, blockedDomains)
+            }
+        }
+    }
+
+    fun isWhitelisted(domain: String): Boolean {
+        // Cek User Whitelist & System Whitelist menggunakan Suffix Matching
+        val ld = domain.lowercase().trimEnd('.')
+        if (matchRecursive(ld, SYSTEM_WHITELIST)) return true
+        if (matchRecursive(ld, autoWhitelistedDomains)) return true
+        return false
+    }
+
+    /**
+     * Recursive Suffix Matcher
+     * Contoh: ads.google.com -> cek ads.google.com, lalu google.com, lalu com.
+     */
+    private fun matchRecursive(domain: String, set: HashSet<String>): Boolean {
+        if (set.isEmpty()) return false
+        if (set.contains(domain)) return true
+        
+        var current = domain
+        while (current.contains(".")) {
+            current = current.substringAfter(".")
+            if (set.contains(current)) return true
         }
         return false
     }
+
+    // Deprecated: Diganti oleh shouldBlock
+    fun isAd(domain: String): Boolean = shouldBlock(domain, AppCategory.GENERAL)
 }

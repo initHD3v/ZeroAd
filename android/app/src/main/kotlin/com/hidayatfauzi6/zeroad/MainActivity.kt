@@ -251,12 +251,25 @@ class MainActivity : FlutterActivity() {
 
     private fun getEssentialApps(): ArrayList<String> {
         val list = ArrayList<String>()
+        val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
+        val userWhitelist = prefs.getStringSet("whitelisted_apps", emptySet()) ?: emptySet()
+        
         val packages = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
         for (app in packages) {
             val pkg = app.packageName.lowercase()
+            
+            // 1. Always include User Whitelist
+            if (userWhitelist.contains(app.packageName)) {
+                list.add(app.packageName)
+                continue
+            }
+
+            // 2. Heuristic for Essential Apps
             if (pkg.contains("chrome") || pkg.contains("browser") || pkg.contains("webview")) continue
             val isEssentialCategory = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                app.category == 8 || app.category == 6 || app.category == 7
+                app.category == ApplicationInfo.CATEGORY_MAPS || 
+                app.category == ApplicationInfo.CATEGORY_PRODUCTIVITY || 
+                app.category == ApplicationInfo.CATEGORY_SOCIAL
             } else false
             val isIndustryMatch = pkg.contains(".bank") || pkg.contains(".pay") || 
                                  pkg.contains(".wallet") || pkg.contains(".finance") || 
@@ -265,7 +278,9 @@ class MainActivity : FlutterActivity() {
                                  pkg.contains("traveloka") || pkg.contains("shopee") || 
                                  pkg.contains("tokopedia") || pkg.contains("gojek") || 
                                  pkg.contains("id.dana") || pkg.contains("grab") ||
-                                 pkg.contains("youtube") || pkg.contains("vending")
+                                 pkg.contains("google") || pkg.contains("vending") || 
+                                 pkg.contains("play") || pkg.contains("gms") || 
+                                 pkg.contains("gsf")
             if (isEssentialCategory || isIndustryMatch) list.add(app.packageName)
         }
         return list

@@ -7,8 +7,7 @@ object SimpleDnsParser {
 
     data class DnsInfo(val domain: String, val payload: ByteArray)
 
-    fun parse(packet: ByteBuffer): DnsInfo? {
-        val ipHeaderLen = (packet.get(0).toInt() and 0x0F) * 4
+    fun parse(packet: ByteBuffer, ipHeaderLen: Int): DnsInfo? {
         val udpOffset = ipHeaderLen
         val dnsOffset = udpOffset + 8
         
@@ -62,8 +61,7 @@ object SimpleDnsParser {
 
     // Membuat paket respon "NXDOMAIN" (Not Found)
     // Kita gunakan ulang header request, lalu tukar IP & Port
-    fun createNxDomainResponse(request: ByteBuffer): ByteArray {
-        val ipHeaderLen = (request.get(0).toInt() and 0x0F) * 4
+    fun createNxDomainResponse(request: ByteBuffer, ipHeaderLen: Int): ByteArray {
         val raw = request.array().copyOf(request.limit())
         val buffer = ByteBuffer.wrap(raw)
 
@@ -94,8 +92,7 @@ object SimpleDnsParser {
 
     // Membuat respon "A Record" dengan IP 0.0.0.0
     // Ini lebih baik daripada NXDOMAIN karena menipu aplikasi agar menganggap internet ada
-    fun createNullIpResponse(request: ByteBuffer): ByteArray {
-        val ipHeaderLen = (request.get(0).toInt() and 0x0F) * 4
+    fun createNullIpResponse(request: ByteBuffer, ipHeaderLen: Int): ByteArray {
         val dnsStart = ipHeaderLen + 8
         
         // Ambil DNS Payload asli untuk mengekstrak ID dan Question
@@ -138,13 +135,12 @@ object SimpleDnsParser {
         resPayload.putShort(4.toShort())      // RDLENGTH: 4 bytes
         resPayload.put(byteArrayOf(0, 0, 0, 0)) // RDATA: 0.0.0.0
         
-        return createResponsePacket(request, resPayload.array())
+        return createResponsePacket(request, resPayload.array(), ipHeaderLen)
     }
 
     // Membungkus respon DNS asli (dari internet) ke dalam paket IP untuk dikirim ke Game
-    fun createResponsePacket(request: ByteBuffer, dnsResponsePayload: ByteArray): ByteArray {
-        val ipHeaderLen = (request.get(0).toInt() and 0x0F) * 4
-        
+    fun createResponsePacket(request: ByteBuffer, dnsResponsePayload: ByteArray, ipHeaderLen: Int): ByteArray {
+        val version = (request.get(0).toInt() shr 4) and 0x0F
         // Total Length baru = IP Header + UDP Header + New DNS Payload
         val totalLen = ipHeaderLen + 8 + dnsResponsePayload.size
         val response = ByteBuffer.allocate(totalLen)
@@ -152,15 +148,23 @@ object SimpleDnsParser {
         // Copy IP Header dari Request (sebagai template)
         response.put(request.array(), 0, ipHeaderLen)
         
-        // Swap IP
-        val srcIp = ByteArray(4); val dstIp = ByteArray(4)
-        request.position(12); request.get(srcIp); request.get(dstIp)
-        response.position(12); response.put(dstIp); response.put(srcIp)
-
-        // IP Total Length
-        response.putShort(2, totalLen.toShort())
+        // Swap IP berdasarkan Versi
+        if (version == 4) {
+            val srcIp = ByteArray(4); val dstIp = ByteArray(4)
+            request.position(12); request.get(srcIp); request.get(dstIp)
+            response.position(12); response.put(dstIp); response.put(srcIp)
+            // IP Total Length
+            response.putShort(2, totalLen.toShort())
+        } else if (version == 6) {
+            val srcIp = ByteArray(16); val dstIp = ByteArray(16)
+            request.position(8); request.get(srcIp); request.get(dstIp)
+            response.position(8); response.put(dstIp); response.put(srcIp)
+            // IPv6 Payload Length (Total - Header 40 bytes)
+            response.putShort(4, (totalLen - 40).toShort())
+        }
+        
         // IP Checksum 0 (Biar HP hitung sendiri atau terima apa adanya)
-        response.putShort(10, 0)
+        if (version == 4) response.putShort(10, 0)
 
         // Bangun UDP Header
         request.position(ipHeaderLen)

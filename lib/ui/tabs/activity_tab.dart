@@ -13,6 +13,9 @@ class ActivityTab extends StatelessWidget {
   final VoidCallback onClearLogs;
   final Function(String, String, List<String>) onShowAppDetails;
   final Function(String) onRemoveFromWhitelist;
+  final Map<String, List<String>> groupedLogs;
+  final Map<String, String> appNames;
+  final List<String> sortedPkgKeys;
   final AppLocalizations l10n;
 
   const ActivityTab({
@@ -25,6 +28,9 @@ class ActivityTab extends StatelessWidget {
     required this.onClearLogs,
     required this.onShowAppDetails,
     required this.onRemoveFromWhitelist,
+    required this.groupedLogs,
+    required this.appNames,
+    required this.sortedPkgKeys,
     required this.l10n,
   });
 
@@ -61,34 +67,13 @@ class ActivityTab extends StatelessWidget {
 
   Widget _buildTrafficTab(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    
-    final filteredLogs = vpnLogs.where((log) {
+
+    // Filter Cerdas: Tampilkan jika mengandung indikasi blokir atau ancaman
+    final List<String> sortedKeys = sortedPkgKeys.where((pkg) {
       if (logFilter == 'ALL') return true;
-      final parts = log.split('|');
-      if (parts.length < 3) return false;
-      
-      final status = parts[2];
-      // Filter Cerdas: Tampilkan jika mengandung indikasi blokir atau ancaman
-      return status == 'AD_CONTENT' || 
-             status == 'WEB_SHIELD' || 
-             status == 'AD_ENGINE' || 
-             status == 'DOH_BLOCK' ||
-             status == 'BLOCKED' ||
-             status == 'TRACKER';
+      final logs = groupedLogs[pkg]!;
+      return logs.any((log) => log.contains('|BLOCKED|') || log.contains('AD_CONTENT') || log.contains('WEB_SHIELD'));
     }).toList();
-
-    final Map<String, List<String>> groupedLogs = {};
-    final Map<String, String> appNames = {};
-
-    for (var log in filteredLogs) {
-      final parts = log.split('|');
-      if (parts.length < 6) continue;
-      final packageName = parts[4];
-      groupedLogs.putIfAbsent(packageName, () => []).add(log);
-      appNames[packageName] = parts[5];
-    }
-
-    final sortedKeys = groupedLogs.keys.toList();
 
     return Column(
       children: [
@@ -134,10 +119,23 @@ class ActivityTab extends StatelessWidget {
                     child: ListTile(
                       onTap: () => onShowAppDetails(name, pkg, logs),
                       leading: AppIcon(packageName: pkg, fallbackLetter: isSystem ? "S" : name[0]),
-                      title: Text(isSystem ? "Layanan Sistem" : name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      title: Text(
+                        isSystem 
+                          ? (blockedCount > 0 ? "Sistem: Tracker & Iklan" : "Layanan Sistem") 
+                          : name, 
+                        style: const TextStyle(fontWeight: FontWeight.bold), 
+                        maxLines: 1, 
+                        overflow: TextOverflow.ellipsis
+                      ),
                       subtitle: Text(
-                        isSystem ? "Domain: $lastDomain" : pkg, 
-                        style: TextStyle(fontSize: 11, color: isSystem ? colorScheme.primary : null, fontWeight: isSystem ? FontWeight.bold : null),
+                        isSystem 
+                          ? (blockedCount > 0 ? "Proteksi Privasi Aktif" : "Domain: $lastDomain") 
+                          : pkg, 
+                        style: TextStyle(
+                          fontSize: 11, 
+                          color: isSystem ? colorScheme.primary : null, 
+                          fontWeight: isSystem ? FontWeight.bold : null
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -185,7 +183,9 @@ class ActivityTab extends StatelessWidget {
                   builder: (context, snapshot) {
                     return Text(
                       snapshot.data ?? pkg, 
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     );
                   },
                 ),
