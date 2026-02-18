@@ -126,12 +126,17 @@ class AdFilterEngine(private val context: Context) {
 
     private fun isHardAdPattern(domain: String): Boolean {
         // Pola yang HANYA digunakan oleh server iklan (Sangat Spesifik)
-        // Kita hindari memblokir domain 'config' atau 'settings' dari Unity/AdMob karena sering berisi fungsionalitas lain.
         val hardAdKeywords = listOf(
-            "unityads.unity3d.com/v2/ads", "ads.prd.ie.unity3d.com", 
+            "unityads.unity3d.com", "ads.prd.ie.unity3d.com", "ads-pau.unity3d.com",
             "googleads.g.doubleclick.net", "pagead2.googlesyndication.com",
             "admob.google.com", "applovin.com/ad", "a.applovin.com",
-            "ads-pau.unity3d.com"
+            "ironsrc.com", "supersonicads.com", // IronSource
+            "vungle.com", "ads.vungle.com", // Vungle
+            "pangle.io", "ads-pangle.com", // Pangle (Bytedance)
+            "mintegral.com", "mbridge.com", // Mintegral
+            "inmobi.com", "inmobi.net", // InMobi
+            "yandex.net/ads", "mobile.yandex.net", "metrica.yandex", // Yandex Ads & Analytics
+            "app-measurement.com", "segment.io" // Common Tracking
         )
         return hardAdKeywords.any { domain.contains(it) }
     }
@@ -209,11 +214,11 @@ class AdFilterEngine(private val context: Context) {
         // 3. Contextual Filtering
         return when (category) {
             AppCategory.GAME -> {
-                // Untuk Game: Hanya blokir jika ada di daftar Hard-Ads
+                // Untuk Game yang masuk tunnel: Hanya blokir tanda tangan iklan konfirm (IronSource, Unity, dll)
                 matchRecursive(ld, hardAdsDomains)
             }
             AppCategory.SYSTEM, null -> {
-                // Untuk System atau Unknown: Jangan blokir (PASS ON UNCERTAINTY)
+                // Untuk System atau Unknown: Jangan blokir sewenang-wenang
                 false
             }
             AppCategory.GENERAL -> {

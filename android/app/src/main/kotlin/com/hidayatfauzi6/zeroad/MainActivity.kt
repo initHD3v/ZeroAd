@@ -264,24 +264,27 @@ class MainActivity : FlutterActivity() {
                 continue
             }
 
-            // 2. Heuristic for Essential Apps
+            // 2. Heuristic for Essential Apps & Big Trusted Apps
             if (pkg.contains("chrome") || pkg.contains("browser") || pkg.contains("webview")) continue
-            val isEssentialCategory = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                app.category == ApplicationInfo.CATEGORY_MAPS || 
-                app.category == ApplicationInfo.CATEGORY_PRODUCTIVITY || 
-                app.category == ApplicationInfo.CATEGORY_SOCIAL
-            } else false
+            
+            // BYPASS LIST: Apps that are trusted/critical and don't need monitoring
             val isIndustryMatch = pkg.contains(".bank") || pkg.contains(".pay") || 
                                  pkg.contains(".wallet") || pkg.contains(".finance") || 
-                                 pkg.contains("payment") || pkg.contains(".shop") || 
-                                 pkg.contains(".market") || pkg.contains("commerce") || 
-                                 pkg.contains("traveloka") || pkg.contains("shopee") || 
-                                 pkg.contains("tokopedia") || pkg.contains("gojek") || 
-                                 pkg.contains("id.dana") || pkg.contains("grab") ||
-                                 pkg.contains("google") || pkg.contains("vending") || 
-                                 pkg.contains("play") || pkg.contains("gms") || 
-                                 pkg.contains("gsf")
-            if (isEssentialCategory || isIndustryMatch) list.add(app.packageName)
+                                 pkg.contains("payment") || pkg.contains("vending") || 
+                                 pkg.contains("google.android.gms") || pkg.contains("google.android.gsf") ||
+                                 pkg.contains("com.android.vending") || // Play Store
+                                 pkg.contains("id.dana") || pkg.contains("shopee") || 
+                                 pkg.contains("tokopedia") || pkg.contains("lazada") ||
+                                 pkg.contains("traveloka") || pkg.contains("grab") || pkg.contains("gojek") ||
+                                 // SOCIAL MEDIA BYPASS
+                                 pkg.contains("facebook") || pkg.contains("instagram") || 
+                                 pkg.contains("tiktok") || pkg.contains("whatsapp") || 
+                                 pkg.contains("twitter") || pkg.contains("maps") ||
+                                 // AAA GAMES BYPASS (Stabilitas 100%)
+                                 pkg.contains("mobile.legends") || pkg.contains("tencent.ig") || 
+                                 pkg.contains("twoheadshark.tco") || pkg.contains("garena.game")
+            
+            if (isIndustryMatch) list.add(app.packageName)
         }
         return list
     }

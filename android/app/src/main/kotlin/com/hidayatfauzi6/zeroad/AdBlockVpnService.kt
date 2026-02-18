@@ -247,6 +247,15 @@ class AdBlockVpnService : VpnService() {
                                     executor?.execute { handleDnsRequest(ByteBuffer.wrap(packetCopy), ipHeaderLen) }
                                 }
                             } catch (e: RejectedExecutionException) {}
+                        } else {
+                            // TRANSPARENT PASSTHROUGH for non-DNS UDP (Port != 53)
+                            // Ini menangani ping/tes koneksi game ke 8.8.8.8 agar tidak macet
+                            val packetCopy = ByteArray(length); System.arraycopy(buffer.array(), 0, packetCopy, 0, length)
+                            try {
+                                if (executor?.isShutdown == false) {
+                                    executor?.execute { forwardNonDnsUDP(ByteBuffer.wrap(packetCopy), ipHeaderLen) }
+                                }
+                            } catch (e: RejectedExecutionException) {}
                         }
                     }
                 } else if (version == 6) {
@@ -290,6 +299,7 @@ class AdBlockVpnService : VpnService() {
             val cachedResponse = dnsCache[domain]
             if (cachedResponse != null && (System.currentTimeMillis() - cachedResponse.second < CACHE_TTL)) {
                 sendCachedResponse(packet, cachedResponse.first, dnsInfo, ipHeaderLen)
+                asyncLog(packet, domain, ipHeaderLen, category.name, "PASS (Cached)")
                 return
             }
 
@@ -319,10 +329,15 @@ class AdBlockVpnService : VpnService() {
         try {
             if (executor?.isShutdown == false) {
                 executor?.execute {
-                    forwardQueryShared(dnsInfo.payload)?.let { res ->
-                        if (action == "ALLOWED") dnsCache[dnsInfo.domain] = Pair(res, System.currentTimeMillis())
-                        sendSimpleDnsPacket(packet, res, ipHeaderLen)
-                        asyncLog(packet, dnsInfo.domain, ipHeaderLen, category, action)
+                    forwardQueryShared(dnsInfo.payload).let { res ->
+                        if (res != null) {
+                            if (action == "ALLOWED") dnsCache[dnsInfo.domain] = Pair(res, System.currentTimeMillis())
+                            sendSimpleDnsPacket(packet, res, ipHeaderLen)
+                            asyncLog(packet, dnsInfo.domain, ipHeaderLen, category, action)
+                        } else {
+                            // Jika res null, berarti gagal koneksi ke ISP
+                            asyncLog(packet, dnsInfo.domain, ipHeaderLen, category, "ISP_FAIL (No Connectivity)")
+                        }
                     }
                 }
             }
@@ -407,13 +422,59 @@ class AdBlockVpnService : VpnService() {
         } catch (e: Exception) { return null } finally { try { socket?.close() } catch (e: Exception) {} }
     }
 
+    private fun forwardNonDnsUDP(packet: ByteBuffer, ipHeaderLen: Int) {
+        var socket: DatagramSocket? = null
+        try {
+            val dstPort = packet.getShort(ipHeaderLen + 2).toInt() and 0xFFFF
+            val dstIp = getDestIp(packet)
+            
+            val payloadLen = (packet.getShort(ipHeaderLen + 4).toInt() and 0xFFFF) - 8
+            if (payloadLen <= 0) return
+            
+            val payload = ByteArray(payloadLen)
+            packet.position(ipHeaderLen + 8)
+            packet.get(payload)
+            
+            socket = DatagramSocket()
+            protect(socket)
+            socket.soTimeout = 800 // Timeout lebih cepat untuk tes koneksi game
+            val out = DatagramPacket(payload, payload.size, InetAddress.getByName(dstIp), dstPort)
+            socket.send(out)
+            
+            val inData = ByteArray(1500)
+            val inP = DatagramPacket(inData, inData.size)
+            socket.receive(inP)
+            
+            val res = inData.copyOf(inP.length)
+            sendSimpleDnsPacket(packet, res, ipHeaderLen)
+            
+            // Log aktivitas non-DNS agar tetap terlihat di Live Activity
+            asyncLog(packet, "$dstIp:$dstPort", ipHeaderLen, "GENERAL", "PASS (UDP)")
+        } catch (e: Exception) {
+            // Jika gagal, biarkan saja (Game biasanya akan retry atau fallback)
+        } finally { try { socket?.close() } catch (e: Exception) {} }
+    }
+
     private fun getSystemDns(): String? {
         return try {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
-            val activeNetwork = cm.activeNetwork
-            val linkProperties = cm.getLinkProperties(activeNetwork)
-            linkProperties?.dnsServers?.firstOrNull()?.hostAddress
-        } catch (e: Exception) { null }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val activeNetwork = cm.activeNetwork
+                val lp = cm.getLinkProperties(activeNetwork)
+                val dnsServers = lp?.dnsServers
+                
+                // Cari IP DNS yang BUKAN merupakan IP lokal VPN kita sendiri (untuk mencegah LOOP)
+                val validDns = dnsServers?.firstOrNull { 
+                    val addr = it.hostAddress ?: ""
+                    addr != "10.0.0.2" && addr != "127.0.0.1" && addr != "0.0.0.0" 
+                }
+                validDns?.hostAddress ?: "1.1.1.1" // Fallback ke Cloudflare jika tidak ada yang valid
+            } else {
+                "1.1.1.1"
+            }
+        } catch (e: Exception) { 
+            "1.1.1.1" 
+        }
     }
 
     private fun sendSimpleDnsPacket(request: ByteBuffer, payload: ByteArray, ipHeaderLen: Int) {
