@@ -7,15 +7,75 @@ import 'package:flutter/foundation.dart';
 /// [BlocklistService] mengelola siklus hidup daftar blokir dinamis.
 class BlocklistService {
   static const String _defaultSourceUrl = 'https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts';
-  
+
   static const List<String> _globalWhitelists = [
     'https://raw.githubusercontent.com/anudeepND/whitelist/master/domains/whitelist.txt',
     'https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/WhitelistFilter/sections/exclude.txt',
     'https://raw.githubusercontent.com/AdguardTeam/HttpsExclusionList/master/mobile/android.txt'
   ];
-  
+
   static const String _fileName = 'zeroad_dynamic_hosts.txt';
   static const String _whitelistFileName = 'zeroad_auto_whitelist.txt';
+
+  // ADGUARD-STYLE: Google Services yang HARUS dilindungi (tidak boleh diblokir)
+  static const List<String> _googleAllowlist = [
+    // Google Play Services (IAP, Download, Update)
+    'play.googleapis.com',
+    'play.google.com',
+    'android.clients.google.com',
+    'clientservices.googleapis.com',
+    'content.googleapis.com',
+    'download.googleapis.com',
+    'storage.googleapis.com',
+    'playassetdelivery.googleapis.com',
+    'playappasset.googleapis.com',
+    
+    // Google Authentication & Account
+    'accounts.google.com',
+    'auth.googleapis.com',
+    'oauthaccountmanager.googleapis.com',
+    'identitytoolkit.googleapis.com',
+    'oauth2.googleapis.com',
+    'www.googleapis.com',
+    
+    // Firebase (Game Save, Remote Config, Analytics)
+    'firebase.googleapis.com',
+    'firestore.googleapis.com',
+    'firebaseinstallations.googleapis.com',
+    'firebaseremoteconfig.googleapis.com',
+    'firebaseabtesting.googleapis.com',
+    'firebaseinappmessaging.googleapis.com',
+    'firebaseappdistribution.googleapis.com',
+    'firebaseappcheck.googleapis.com',
+    'firebasestorage.googleapis.com',
+    'firebasedynamiclinks.googleapis.com',
+    'firebasefunctions.googleapis.com',
+    'firebasemessaging.googleapis.com',
+    
+    // Google Payments (IAP)
+    'payments.google.com',
+    'checkout.google.com',
+    'billing.google.com',
+    'purchase.google.com',
+    'playbilling.googleapis.com',
+    
+    // Google Play Games (Achievements, Cloud Save, Leaderboards)
+    'games.googleapis.com',
+    'playgames.google.com',
+    
+    // Google Maps API (Location-based games)
+    'maps.googleapis.com',
+    'maps.google.com',
+    'tile.googleapis.com',
+    
+    // YouTube API (Video rewards)
+    'youtube.googleapis.com',
+    'www.youtube-nocookie.com',
+    
+    // Android System
+    'android.googleapis.com',
+    'googleapis.l.google.com',
+  ];
 
   static const List<String> _protectedDomains = [
     'google.com', 'googleapis.com', 'gstatic.com', 'googleusercontent.com',
@@ -96,12 +156,65 @@ class BlocklistService {
     for (var line in lines) {
       final trimmed = line.trim();
       if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
-      
+
       final parts = trimmed.split(RegExp(r'\s+'));
-      String domain = (parts.length >= 2) ? parts[1].toLowerCase() : 
-                      (parts.length == 1 && !parts[0].contains('0.0.0.0')) ? parts[0].toLowerCase() : '';
+      String domain = (parts.length >= 2) 
+          ? parts[1].toLowerCase()
+          : (parts.length == 1 && !parts[0].contains('0.0.0.0')) 
+              ? parts[0].toLowerCase() 
+              : '';
 
       if (domain.isNotEmpty) {
+        // --- ADGUARD-STYLE PROTECTION ---
+        
+        // 1. Protect Google Services (allowlist) - PRIORITAS TERTINGGI
+        bool isProtectedGoogleService = false;
+        for (var allowed in _googleAllowlist) {
+          if (domain == allowed || domain.endsWith('.$allowed')) {
+            isProtectedGoogleService = true;
+            break;
+          }
+        }
+        if (isProtectedGoogleService) continue; // SKIP - jangan masukkan ke blocklist
+        
+        // 2. Check Google Ads domains - HARUS diblokir
+        // Domain ini tidak boleh masuk whitelist meskipun mengandung "google"
+        bool isGoogleAds = false;
+        final googleAdsPatterns = [
+          'googleads.g.doubleclick.net',
+          'googleadservices.com',
+          'googleadsserving.cn',
+          'pagead2.googlesyndication.com',
+          'pagead.google.com',
+          'adx.google.com',
+          'ad.doubleclick.net',
+          'adservice.google.com',
+          'afs.googlesyndication.com',
+          'bid.g.doubleclick.net',
+          'cm.g.doubleclick.net',
+          'fls.doubleclick.net',
+          'tpc.googlesyndication.com',
+          's0.2mdn.net',
+          's1.2mdn.net',
+          'admob.com',
+          'admob.google.com',
+          'doubleclick.net',
+          '2mdn.net',
+          'googlesyndication.com',
+        ];
+        for (var adsPattern in googleAdsPatterns) {
+          if (domain == adsPattern || domain.endsWith('.$adsPattern')) {
+            isGoogleAds = true;
+            break;
+          }
+        }
+        
+        if (isGoogleAds) {
+          validDomains.add(domain); // Tambahkan ke blocklist
+          continue;
+        }
+        
+        // 3. Protect general domains
         bool isProtected = false;
         for (var protected in _protectedDomains) {
           if (domain == protected || domain.endsWith('.$protected')) {

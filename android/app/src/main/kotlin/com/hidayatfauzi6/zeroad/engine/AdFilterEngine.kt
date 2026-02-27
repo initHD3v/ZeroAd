@@ -32,16 +32,49 @@ class AdFilterEngine(private val context: Context) {
     )
 
     // Whitelist Infrastruktur Kritis (Subdomain Specific)
+    // ADGUARD-STYLE: Granular protection untuk Google Services
     private val SYSTEM_WHITELIST = hashSetOf(
+        // Google Core Services - DIIZINKAN
         "google.com", "google.co.id", "googleapis.com", "gstatic.com", "googleusercontent.com",
         "ggpht.com", "gvt1.com", "googlevideo.com", "googletagmanager.com",
-        "firebaseio.com", "firebaseinstallations.googleapis.com", "firebase.io",
-        "oauthaccountmanager.googleapis.com", "identitytoolkit.googleapis.com",
-        "play.googleapis.com", "play-fe.googleapis.com", "android.clients.google.com",
-        "payments.google.com", "checkout.google.com", "billing.google.com", "google-analytics.com",
-        "tuningclub.app", "twoheadedshark.com", "exitgames.com", "photonengine.io", "photonengine.com",
+        
+        // Google Play Services (IAP, Download, Update)
+        "play.googleapis.com", "play.google.com", "play-fe.googleapis.com",
+        "android.clients.google.com", "clientservices.googleapis.com",
+        "content.googleapis.com", "download.googleapis.com", "storage.googleapis.com",
+        "playassetdelivery.googleapis.com", "playappasset.googleapis.com",
+        
+        // Google Authentication & Account
+        "accounts.google.com", "auth.googleapis.com", "oauthaccountmanager.googleapis.com",
+        "identitytoolkit.googleapis.com", "oauth2.googleapis.com", "www.googleapis.com",
+        
+        // Firebase (Game Save, Remote Config, Analytics)
+        "firebaseio.com", "firebase.googleapis.com", "firestore.googleapis.com",
+        "firebaseinstallations.googleapis.com", "firebaseremoteconfig.googleapis.com",
+        "firebaseabtesting.googleapis.com", "firebaseinappmessaging.googleapis.com",
+        "firebaseappdistribution.googleapis.com", "firebaseappcheck.googleapis.com",
+        "firebasestorage.googleapis.com", "firebasedynamiclinks.googleapis.com",
+        "firebasefunctions.googleapis.com", "firebasemessaging.googleapis.com",
+        
+        // Google Payments (IAP)
+        "payments.google.com", "checkout.google.com", "billing.google.com",
+        "purchase.google.com", "playbilling.googleapis.com",
+        
+        // Google Play Games (Achievements, Cloud Save, Leaderboards)
+        "games.googleapis.com", "playgames.google.com", "www.googleapis.com",
+        
+        // Google Maps API (Location-based games)
+        "maps.googleapis.com", "maps.google.com", "tile.googleapis.com",
+        
+        // YouTube API (Video rewards)
+        "youtube.googleapis.com", "www.youtube-nocookie.com", "youtube-nocookie.com",
+        
+        // Android System
+        "android.googleapis.com", "googleapis.l.google.com",
+        
+        // Other Critical Infrastructure
         "apple.com", "itunes.apple.com", "icloud.com", "mzstatic.com",
-        "unity3d.com", "unity.com", "cloud.unity3d.com", "config.unity3d.com", 
+        "unity3d.com", "unity.com", "cloud.unity3d.com", "config.unity3d.com",
         "epicgames.com", "unrealengine.com", "akamaihd.net", "cloudfront.net",
         "facebook.net", "fbcdn.net", "facebook.com", "adjust.com", "appsflyer.com",
         "hoyoverse.com", "mihoyo.com", "starrails.com", "supercell.com", "moonton.com",
@@ -51,6 +84,33 @@ class AdFilterEngine(private val context: Context) {
         "lazada.co.id", "lazada.com", "alicdn.com", "blibli.com", "bukalapak.com", "tiktokcdn.com",
         "dana.id", "ovo.id", "klikbca.com", "bankmandiri.co.id", "bni.co.id", "bri.co.id",
         "jenius.com", "jago.com", "neobank.co.id", "paypal.com", "wise.com"
+    )
+
+    // ADGUARD-STYLE: Google Ads & Tracking domains yang HARUS diblokir
+    private val GOOGLE_ADS_BLOCKLIST = hashSetOf(
+        // Google Ads Network
+        "googleads.g.doubleclick.net", "googleadservices.com", "googleadsserving.cn",
+        "pagead2.googlesyndication.com", "pagead.google.com", "pagead.l.google.com",
+        "adx.google.com", "ad.doubleclick.net", "adservice.google.com",
+        "afs.googlesyndication.com", "partnerad.l.google.com",
+        
+        // Ad Exchange & Bidding
+        "bid.g.doubleclick.net", "cm.g.doubleclick.net", "dart.l.doubleclick.net",
+        "fls.doubleclick.net", "tpc.googlesyndication.com",
+        
+        // Ad Media Servers
+        "s0.2mdn.net", "s1.2mdn.net", "s2.2mdn.net", "s3.2mdn.net",
+        "r1.2mdn.net", "r2.2mdn.net", "r3.2mdn.net",
+        
+        // Google Analytics (Tracking)
+        "stats.g.doubleclick.net", "google-analytics.com", "analytics.google.com",
+        "ga-beacon.appspot.com",
+        
+        // AdMob (In-App Ads)
+        "admob.com", "admob.google.com", "admob.googleapis.com",
+        
+        // Other Ad Networks
+        "doubleclick.net", "2mdn.net", "googlesyndication.com"
     )
 
     fun loadBlocklists(prefs: SharedPreferences) {
@@ -125,18 +185,51 @@ class AdFilterEngine(private val context: Context) {
     }
 
     private fun isHardAdPattern(domain: String): Boolean {
-        // Pola yang HANYA digunakan oleh server iklan (Sangat Spesifik)
+        // ADGUARD-STYLE: Pola yang HANYA digunakan oleh server iklan (Sangat Spesifik)
         val hardAdKeywords = listOf(
+            // Unity Ads (bukan Unity Engine)
             "unityads.unity3d.com", "ads.prd.ie.unity3d.com", "ads-pau.unity3d.com",
+            "unityads.unity3d.com", "config.unity3d.com/ads",
+            
+            // Google Ads (Spesifik)
             "googleads.g.doubleclick.net", "pagead2.googlesyndication.com",
-            "admob.google.com", "applovin.com/ad", "a.applovin.com",
-            "ironsrc.com", "supersonicads.com", // IronSource
-            "vungle.com", "ads.vungle.com", // Vungle
-            "pangle.io", "ads-pangle.com", // Pangle (Bytedance)
-            "mintegral.com", "mbridge.com", // Mintegral
-            "inmobi.com", "inmobi.net", // InMobi
-            "yandex.net/ads", "mobile.yandex.net", "metrica.yandex", // Yandex Ads & Analytics
-            "app-measurement.com", "segment.io" // Common Tracking
+            "googleadservices.com", "googleadsserving.cn",
+            "ad.doubleclick.net", "adservice.google.com",
+            "adx.google.com", "afs.googlesyndication.com",
+            
+            // AdMob
+            "admob.com", "admob.google.com", "admob.googleapis.com",
+            "applovin.com/ad", "a.applovin.com", "ads.applovin.com",
+            
+            // IronSource
+            "ironsrc.com", "supersonicads.com", "is.com",
+            
+            // Vungle
+            "vungle.com", "ads.vungle.com", "cdn.vungle.com",
+            
+            // Pangle (Bytedance)
+            "pangle.io", "ads-pangle.com", "pangle-sg.com",
+            
+            // Mintegral
+            "mintegral.com", "mbridge.com", "cdn.mintegral.com",
+            
+            // InMobi
+            "inmobi.com", "inmobi.net", "sdkm.inmobi.com",
+            
+            // Yandex Ads & Analytics
+            "yandex.net/ads", "mobile.yandex.net", "metrica.yandex",
+            
+            // Other Ad Networks
+            "applovin.com", "ads.applovin.com",
+            "chartboost.com", "api.chartboost.com",
+            "tapjoy.com", "offerwall.tapjoy.com",
+            "fyber.com", "engine.fyber.com",
+            "adcolony.com", "ads.adcolony.com",
+            "startapp.com", "init.startappexchange.com",
+            "appsflyer.com", "adjust.com", // Trackers
+            
+            // Common Tracking
+            "app-measurement.com", "segment.io",
         )
         return hardAdKeywords.any { domain.contains(it) }
     }
@@ -198,27 +291,41 @@ class AdFilterEngine(private val context: Context) {
     }
 
     /**
-     * Smart Filtering Logic
+     * Smart Filtering Logic (ADGUARD-STYLE)
      * @param domain Domain yang diminta
      * @param category Kategori aplikasi pengirim
+     * 
+     * Prinsip:
+     * 1. Cek Google Allowlist dulu (prioritas tertinggi)
+     * 2. Cek apakah domain adalah Google Ads yang harus diblokir
+     * 3. Contextual filtering berdasarkan kategori aplikasi
      */
     fun shouldBlock(domain: String, category: AppCategory?): Boolean {
         val ld = domain.lowercase().trimEnd('.')
-        
+
         // 1. Fast Track: DoH Blocking (Agar Chrome fallback)
         if (DOH_DOMAINS.contains(ld)) return true
 
-        // 2. Fast Track: Critical System Whitelist (Recursive Suffix Match)
+        // 2. ADGUARD-STYLE: Cek Google Ads Blocklist (prioritas sebelum whitelist)
+        // Domain di sini HARUS diblokir meskipun mengandung kata "google"
+        if (GOOGLE_ADS_BLOCKLIST.any { ld == it || ld.endsWith(".$it") }) {
+            return true
+        }
+
+        // 3. Fast Track: Critical System Whitelist (Recursive Suffix Match)
+        // Ini akan melewatkan Google Services yang legit
         if (isWhitelisted(ld)) return false
 
-        // 3. Contextual Filtering
+        // 4. Contextual Filtering berdasarkan kategori aplikasi
         return when (category) {
             AppCategory.GAME -> {
-                // Untuk Game yang masuk tunnel: Hanya blokir tanda tangan iklan konfirm (IronSource, Unity, dll)
+                // Untuk Game: Hanya blokir tanda tangan iklan konfirm
+                // Google Services sudah di-filter di step 2-3
                 matchRecursive(ld, hardAdsDomains)
             }
             AppCategory.SYSTEM, null -> {
                 // Untuk System atau Unknown: Jangan blokir sewenang-wenang
+                // Ini penting untuk Google Play Services yang tidak teridentifikasi
                 false
             }
             AppCategory.GENERAL -> {

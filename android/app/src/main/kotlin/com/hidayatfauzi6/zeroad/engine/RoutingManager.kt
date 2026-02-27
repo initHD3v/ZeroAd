@@ -12,32 +12,49 @@ class RoutingManager(private val builder: VpnService.Builder) {
             // 1. IP Lokal VPN
             builder.addAddress("10.0.0.2", 32)
 
-            // 2. Local DNS Proxy
+            // 2. Local DNS Proxy - Gunakan DNS ISP yang aman
             builder.addDnsServer("10.0.0.2")
-            
-            // 3. DNS TRAPPING
-            // Sangat penting: Kita harus menambahkan route untuk IP DNS publik agar bisa dicegat.
-            // Tanpa route ini, trafik ke 8.8.8.8 akan langsung di-bypass oleh sistem Android.
+
+            // 3. FIXED: ROUTING UNTUK SEMUA TRAFFIC (Bukan hanya DNS)
+            // Ini penting agar YouTube dan aplikasi lain bisa connect melalui VPN
+            // VPN akan menangkap SEMUA traffic, tapi HANYA filter DNS port 53
             try {
+                // Route semua traffic IPv4 melalui VPN
+                builder.addRoute("0.0.0.0", 0)
+                
+                // Tetap tambahkan route spesifik untuk DNS publik sebagai backup
                 builder.addRoute("8.8.8.8", 32)
                 builder.addRoute("8.8.4.4", 32)
                 builder.addRoute("1.1.1.1", 32)
                 builder.addRoute("1.0.0.1", 32)
-            } catch (e: Exception) { Log.e("RoutingManager", "Gagal tambah DNS routes", e) }
+            } catch (e: Exception) { 
+                Log.e("RoutingManager", "Gagal tambah routes", e)
+                // Fallback: jika gagal, tetap gunakan route default
+                try {
+                    builder.addRoute("0.0.0.0", 0)
+                } catch (e2: Exception) {}
+            }
 
             // IPv6 Local DNS
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 builder.addAddress("fd00::2", 128)
                 builder.addDnsServer("fd00::2")
                 try {
-                    builder.addRoute("2001:4860:4860::8888", 128)
-                    builder.addRoute("2606:4700:4700::1111", 128)
+                    // Route semua IPv6 traffic
+                    builder.addRoute("::", 0)
                 } catch (e: Exception) {}
             }
 
+            // FIXED: Allow bypass untuk aplikasi yang di-whitelist
             builder.allowBypass()
             builder.setMtu(1500)
             builder.setSession("ZeroAd Smart Shield")
+            
+            // FIXED: Tambahkan DNS server backup untuk fallback
+            try {
+                builder.addDnsServer("8.8.8.8")
+                builder.addDnsServer("1.1.1.1")
+            } catch (e: Exception) {}
         } catch (e: Exception) {
             Log.e("RoutingManager", "Error konfigurasi routing", e)
         }

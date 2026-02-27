@@ -253,37 +253,184 @@ class MainActivity : FlutterActivity() {
         val list = ArrayList<String>()
         val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
         val userWhitelist = prefs.getStringSet("whitelisted_apps", emptySet()) ?: emptySet()
-        
+
         val packages = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
         for (app in packages) {
             val pkg = app.packageName.lowercase()
-            
-            // 1. Always include User Whitelist
+            val appName = packageManager.getApplicationLabel(app).toString().lowercase()
+
+            // 1. Always include User Whitelist (prioritas tertinggi)
             if (userWhitelist.contains(app.packageName)) {
                 list.add(app.packageName)
                 continue
             }
 
-            // 2. Heuristic for Essential Apps & Big Trusted Apps
-            if (pkg.contains("chrome") || pkg.contains("browser") || pkg.contains("webview")) continue
-            
-            // BYPASS LIST: Apps that are trusted/critical and don't need monitoring
-            val isIndustryMatch = pkg.contains(".bank") || pkg.contains(".pay") || 
-                                 pkg.contains(".wallet") || pkg.contains(".finance") || 
-                                 pkg.contains("payment") || pkg.contains("vending") || 
+            // 2. AUTO-WHITELIST: YouTube & Google Apps
+            // YouTube harus di-whitelist agar bisa stream dengan ISP murni
+            if (pkg.contains("youtube") || 
+                pkg.contains("com.google.android.youtube") ||
+                pkg.contains("com.google.android.apps.youtube")) {
+                list.add(app.packageName)
+                continue
+            }
+
+            // 3. AUTO-WHITELIST: Browser Apps
+            // Browser harus dapat ISP murni untuk performa maksimal
+            if (pkg.contains("chrome") || 
+                pkg.contains("browser") || 
+                pkg.contains("webview") ||
+                pkg.contains("opera") ||
+                pkg.contains("firefox") ||
+                pkg.contains("edge") ||
+                pkg.contains("samsung") && pkg.contains("browser") ||
+                pkg.contains("duckduckgo") ||
+                pkg.contains("brave")) {
+                list.add(app.packageName)
+                continue
+            }
+
+            // 4. AUTO-WHITELIST: E-Commerce & Shopping
+            val ecommercePatterns = listOf(
+                "shopee", "tokopedia", "lazada", "bukalapak", "blibli",
+                "tiktok", "amazon", "ebay", "aliexpress", "alibaba",
+                "jd.id", "jd_com", "zalora", "mataharimall",
+                "raja", "olx", "carousell", "facebook.marketplace"
+            )
+            if (ecommercePatterns.any { pkg.contains(it) }) {
+                list.add(app.packageName)
+                continue
+            }
+
+            // 5. AUTO-WHITELIST: Finance & Banking
+            val financePatterns = listOf(
+                // Banking - Indonesia
+                "bca", "mandiri", "bni", "bri", "cimb", "danamon",
+                "permata", "ocbc", "uob", "hsbc", "citibank",
+                "jenius", "jago", "neobank", "seabank", "allo", "neo",
+                "bsi", "btn", "btpn", "maybank", "panin",
+                
+                // Banking - International
+                "bank", "banking", "chase", "wellsfargo", "bofa",
+                
+                // E-Wallet & Payment
+                "dana", "ovo", "gopay", "linkaja", "shopeepay",
+                "wallet", "payment", "pay", "paypal", "venmo",
+                "cashapp", "gcash", "grabpay", "gopay",
+                
+                // Investment & Trading
+                "ajaib", "stockbit", "bibit", "ipot", "mirae",
+                "invest", "trading", "stocks", "crypto",
+                "binance", "indodax", "tokocrypto", "pintu",
+                "reksa", "saham", "sekuritas",
+                
+                // Insurance
+                "insurance", "asuransi", "axa", "allianz", "aia",
+                "prudential", "manulife", "sinarmas", "bumiputera"
+            )
+            if (financePatterns.any { pkg.contains(it) }) {
+                list.add(app.packageName)
+                continue
+            }
+
+            // 6. AUTO-WHITELIST: Travel, Hotel & Flight Booking
+            val travelPatterns = listOf(
+                // Indonesia
+                "traveloka", "tiket.com", "pegipegi", "nusatrip",
+                "airy", "reddoorz", "tickle",
+                
+                // International
+                "booking.com", "booking_com", "agoda", "expedia",
+                "hotels.com", "hotels_com", "airbnb", "vrbo",
+                
+                // Airlines
+                "airasia", "garuda", "lionair", "citilink",
+                "sriwijaya", "batikair", "wingsof",
+                "singapore.airlines", "cathay", "emirates",
+                "qatar", "etihad", "turkish",
+                
+                // Ride Hailing & Transport
+                "grab", "gojek", "gojek.gosend", "gojek.goride",
+                "uber", "lyft", "inriver"
+            )
+            if (travelPatterns.any { pkg.contains(it) }) {
+                list.add(app.packageName)
+                continue
+            }
+
+            // 7. AUTO-WHITELIST: Food Delivery
+            val foodPatterns = listOf(
+                "gofood", "grabfood", "shopeefood", "foodpanda",
+                "deliveroo", "doordash", "ubereats",
+                "zenness", "klikmakan"
+            )
+            if (foodPatterns.any { pkg.contains(it) }) {
+                list.add(app.packageName)
+                continue
+            }
+
+            // 8. AUTO-WHITELIST: Social Media & Communication
+            val socialPatterns = listOf(
+                "facebook", "instagram", "tiktok", "twitter",
+                "whatsapp", "telegram", "signal", "line",
+                "wechat", "snapchat", "discord", "slack",
+                "zoom", "teams", "meet", "skype",
+                "messenger", "viber", "kakaotalk", "wechat"
+            )
+            if (socialPatterns.any { pkg.contains(it) }) {
+                list.add(app.packageName)
+                continue
+            }
+
+            // 9. AUTO-WHITELIST: Google Services (Critical)
+            val googleServices = listOf(
+                "com.google.android.gms", // Google Play Services
+                "com.google.android.gsf", // Google Services Framework
+                "com.android.vending", // Google Play Store
+                "com.google.android.play.games", // Google Play Games
+                "com.google.android.apps.maps", // Google Maps
+                "com.google.android.apps.docs", // Google Docs
+                "com.google.android.apps.photos", // Google Photos
+                "com.google.android.apps.translate", // Google Translate
+                "com.google.android.calendar", // Google Calendar
+                "com.google.android.contacts", // Google Contacts
+                "com.google.android.dialer", // Google Phone
+                "com.google.android.apps.messaging" // Google Messages
+            )
+            if (googleServices.any { pkg.contains(it) }) {
+                list.add(app.packageName)
+                continue
+            }
+
+            // 10. AUTO-WHITELIST: Streaming & Entertainment
+            val streamingPatterns = listOf(
+                "netflix", "spotify", "youtube.music",
+                "disney", "hulu", "hbo", "prime.video",
+                "vidio", "iflix", "viu", "wetv",
+                "joox", "apple.music", "soundcloud"
+            )
+            if (streamingPatterns.any { pkg.contains(it) }) {
+                list.add(app.packageName)
+                continue
+            }
+
+            // 11. Heuristic: Package name contains industry keywords
+            val isIndustryMatch = pkg.contains(".bank") || pkg.contains(".pay") ||
+                                 pkg.contains(".wallet") || pkg.contains(".finance") ||
+                                 pkg.contains("payment") || pkg.contains("vending") ||
                                  pkg.contains("google.android.gms") || pkg.contains("google.android.gsf") ||
                                  pkg.contains("com.android.vending") || // Play Store
-                                 pkg.contains("id.dana") || pkg.contains("shopee") || 
+                                 pkg.contains("id.dana") || pkg.contains("shopee") ||
                                  pkg.contains("tokopedia") || pkg.contains("lazada") ||
-                                 pkg.contains("traveloka") || pkg.contains("grab") || pkg.contains("gojek") ||
-                                 // SOCIAL MEDIA BYPASS
-                                 pkg.contains("facebook") || pkg.contains("instagram") || 
-                                 pkg.contains("tiktok") || pkg.contains("whatsapp") || 
+                                 pkg.contains("traveloka") || pkg.contains("tiket") ||
+                                 pkg.contains("grab") || pkg.contains("gojek") ||
+                                 // SOCIAL MEDIA
+                                 pkg.contains("facebook") || pkg.contains("instagram") ||
+                                 pkg.contains("tiktok") || pkg.contains("whatsapp") ||
                                  pkg.contains("twitter") || pkg.contains("maps") ||
-                                 // AAA GAMES BYPASS (Stabilitas 100%)
-                                 pkg.contains("mobile.legends") || pkg.contains("tencent.ig") || 
+                                 // GAMES (Stabilitas 100%)
+                                 pkg.contains("mobile.legends") || pkg.contains("tencent.ig") ||
                                  pkg.contains("twoheadshark.tco") || pkg.contains("garena.game")
-            
+
             if (isIndustryMatch) list.add(app.packageName)
         }
         return list
