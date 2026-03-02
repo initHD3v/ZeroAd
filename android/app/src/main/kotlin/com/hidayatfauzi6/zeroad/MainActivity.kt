@@ -51,7 +51,8 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         var logSink: EventChannel.EventSink? = null
-        
+        var instance: MainActivity? = null // Reference untuk AdBlockVpnService
+
         // Gunakan Handler Utama agar pengiriman log ke Flutter selalu aman dari thread mana pun
         private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -64,10 +65,18 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+        
+        /**
+         * Static helper untuk AdBlockVpnService check auto-whitelist
+         */
+        fun shouldAutoWhitelist(packageName: String): Boolean {
+            return instance?.shouldAutoWhitelist(packageName) ?: false
+        }
     }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        instance = this // Set instance reference
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -249,191 +258,70 @@ class MainActivity : FlutterActivity() {
         )
     }
 
+    /**
+     * CRITICAL FIX: KEMBALIKAN KE KONSEP ZEROAD YANG BENAR
+     * 
+     * ZeroAd = VPN-based DNS Ad Blocker
+     * - SEMUA apps masuk VPN tunnel untuk filtering
+     * - TIDAK ADA bypass ke ISP Direct (kecuali system critical)
+     * - Filtering DNS yang benar untuk block ads
+     * - Koneksi tetap lancar karena filtering yang benar
+     * 
+     * ISP Direct HANYA untuk:
+     * 1. Google Play Services (IAP, Login, Download)
+     * 2. System apps critical
+     * 3. User manual whitelist (jika ada app bermasalah)
+     */
     private fun getEssentialApps(): ArrayList<String> {
         val list = ArrayList<String>()
         val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
         val userWhitelist = prefs.getStringSet("whitelisted_apps", emptySet()) ?: emptySet()
 
         val packages = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+
+        android.util.Log.d("ZeroAd_Whitelist", "🔍 Scanning ${packages.size} apps for ISP Direct bypass...")
+
         for (app in packages) {
             val pkg = app.packageName.lowercase()
-            val appName = packageManager.getApplicationLabel(app).toString().lowercase()
+            val appName = packageManager.getApplicationLabel(app).toString()
 
-            // 1. Always include User Whitelist (prioritas tertinggi)
+            // 1. User Whitelist (prioritas tertinggi)
             if (userWhitelist.contains(app.packageName)) {
                 list.add(app.packageName)
+                android.util.Log.d("ZeroAd_Whitelist", "✅ ISP Direct: $appName (${app.packageName}) - User Whitelist")
                 continue
             }
 
-            // 2. AUTO-WHITELIST: YouTube & Google Apps
-            // YouTube harus di-whitelist agar bisa stream dengan ISP murni
-            if (pkg.contains("youtube") || 
-                pkg.contains("com.google.android.youtube") ||
-                pkg.contains("com.google.android.apps.youtube")) {
+            // 2. Google Play Services CRITICAL (IAP, Login, Download)
+            // Ini SATU-SATUNYA yang perlu ISP Direct untuk fungsi critical
+            if (pkg == "com.google.android.gms" ||           // Google Play Services
+                pkg == "com.android.vending" ||              // Google Play Store
+                pkg == "com.google.android.gsf") {           // Google Services Framework
                 list.add(app.packageName)
-                continue
+                android.util.Log.d("ZeroAd_Whitelist", 
+                    "✅ ISP Direct: $appName (${app.packageName}) - Critical Google Services")
             }
 
-            // 3. AUTO-WHITELIST: Browser Apps
-            // Browser harus dapat ISP murni untuk performa maksimal
-            if (pkg.contains("chrome") || 
-                pkg.contains("browser") || 
-                pkg.contains("webview") ||
-                pkg.contains("opera") ||
-                pkg.contains("firefox") ||
-                pkg.contains("edge") ||
-                pkg.contains("samsung") && pkg.contains("browser") ||
-                pkg.contains("duckduckgo") ||
-                pkg.contains("brave")) {
-                list.add(app.packageName)
-                continue
-            }
-
-            // 4. AUTO-WHITELIST: E-Commerce & Shopping
-            val ecommercePatterns = listOf(
-                "shopee", "tokopedia", "lazada", "bukalapak", "blibli",
-                "tiktok", "amazon", "ebay", "aliexpress", "alibaba",
-                "jd.id", "jd_com", "zalora", "mataharimall",
-                "raja", "olx", "carousell", "facebook.marketplace"
-            )
-            if (ecommercePatterns.any { pkg.contains(it) }) {
-                list.add(app.packageName)
-                continue
-            }
-
-            // 5. AUTO-WHITELIST: Finance & Banking
-            val financePatterns = listOf(
-                // Banking - Indonesia
-                "bca", "mandiri", "bni", "bri", "cimb", "danamon",
-                "permata", "ocbc", "uob", "hsbc", "citibank",
-                "jenius", "jago", "neobank", "seabank", "allo", "neo",
-                "bsi", "btn", "btpn", "maybank", "panin",
-                
-                // Banking - International
-                "bank", "banking", "chase", "wellsfargo", "bofa",
-                
-                // E-Wallet & Payment
-                "dana", "ovo", "gopay", "linkaja", "shopeepay",
-                "wallet", "payment", "pay", "paypal", "venmo",
-                "cashapp", "gcash", "grabpay", "gopay",
-                
-                // Investment & Trading
-                "ajaib", "stockbit", "bibit", "ipot", "mirae",
-                "invest", "trading", "stocks", "crypto",
-                "binance", "indodax", "tokocrypto", "pintu",
-                "reksa", "saham", "sekuritas",
-                
-                // Insurance
-                "insurance", "asuransi", "axa", "allianz", "aia",
-                "prudential", "manulife", "sinarmas", "bumiputera"
-            )
-            if (financePatterns.any { pkg.contains(it) }) {
-                list.add(app.packageName)
-                continue
-            }
-
-            // 6. AUTO-WHITELIST: Travel, Hotel & Flight Booking
-            val travelPatterns = listOf(
-                // Indonesia
-                "traveloka", "tiket.com", "pegipegi", "nusatrip",
-                "airy", "reddoorz", "tickle",
-                
-                // International
-                "booking.com", "booking_com", "agoda", "expedia",
-                "hotels.com", "hotels_com", "airbnb", "vrbo",
-                
-                // Airlines
-                "airasia", "garuda", "lionair", "citilink",
-                "sriwijaya", "batikair", "wingsof",
-                "singapore.airlines", "cathay", "emirates",
-                "qatar", "etihad", "turkish",
-                
-                // Ride Hailing & Transport
-                "grab", "gojek", "gojek.gosend", "gojek.goride",
-                "uber", "lyft", "inriver"
-            )
-            if (travelPatterns.any { pkg.contains(it) }) {
-                list.add(app.packageName)
-                continue
-            }
-
-            // 7. AUTO-WHITELIST: Food Delivery
-            val foodPatterns = listOf(
-                "gofood", "grabfood", "shopeefood", "foodpanda",
-                "deliveroo", "doordash", "ubereats",
-                "zenness", "klikmakan"
-            )
-            if (foodPatterns.any { pkg.contains(it) }) {
-                list.add(app.packageName)
-                continue
-            }
-
-            // 8. AUTO-WHITELIST: Social Media & Communication
-            val socialPatterns = listOf(
-                "facebook", "instagram", "tiktok", "twitter",
-                "whatsapp", "telegram", "signal", "line",
-                "wechat", "snapchat", "discord", "slack",
-                "zoom", "teams", "meet", "skype",
-                "messenger", "viber", "kakaotalk", "wechat"
-            )
-            if (socialPatterns.any { pkg.contains(it) }) {
-                list.add(app.packageName)
-                continue
-            }
-
-            // 9. AUTO-WHITELIST: Google Services (Critical)
-            val googleServices = listOf(
-                "com.google.android.gms", // Google Play Services
-                "com.google.android.gsf", // Google Services Framework
-                "com.android.vending", // Google Play Store
-                "com.google.android.play.games", // Google Play Games
-                "com.google.android.apps.maps", // Google Maps
-                "com.google.android.apps.docs", // Google Docs
-                "com.google.android.apps.photos", // Google Photos
-                "com.google.android.apps.translate", // Google Translate
-                "com.google.android.calendar", // Google Calendar
-                "com.google.android.contacts", // Google Contacts
-                "com.google.android.dialer", // Google Phone
-                "com.google.android.apps.messaging" // Google Messages
-            )
-            if (googleServices.any { pkg.contains(it) }) {
-                list.add(app.packageName)
-                continue
-            }
-
-            // 10. AUTO-WHITELIST: Streaming & Entertainment
-            val streamingPatterns = listOf(
-                "netflix", "spotify", "youtube.music",
-                "disney", "hulu", "hbo", "prime.video",
-                "vidio", "iflix", "viu", "wetv",
-                "joox", "apple.music", "soundcloud"
-            )
-            if (streamingPatterns.any { pkg.contains(it) }) {
-                list.add(app.packageName)
-                continue
-            }
-
-            // 11. Heuristic: Package name contains industry keywords
-            val isIndustryMatch = pkg.contains(".bank") || pkg.contains(".pay") ||
-                                 pkg.contains(".wallet") || pkg.contains(".finance") ||
-                                 pkg.contains("payment") || pkg.contains("vending") ||
-                                 pkg.contains("google.android.gms") || pkg.contains("google.android.gsf") ||
-                                 pkg.contains("com.android.vending") || // Play Store
-                                 pkg.contains("id.dana") || pkg.contains("shopee") ||
-                                 pkg.contains("tokopedia") || pkg.contains("lazada") ||
-                                 pkg.contains("traveloka") || pkg.contains("tiket") ||
-                                 pkg.contains("grab") || pkg.contains("gojek") ||
-                                 // SOCIAL MEDIA
-                                 pkg.contains("facebook") || pkg.contains("instagram") ||
-                                 pkg.contains("tiktok") || pkg.contains("whatsapp") ||
-                                 pkg.contains("twitter") || pkg.contains("maps") ||
-                                 // GAMES (Stabilitas 100%)
-                                 pkg.contains("mobile.legends") || pkg.contains("tencent.ig") ||
-                                 pkg.contains("twoheadshark.tco") || pkg.contains("garena.game")
-
-            if (isIndustryMatch) list.add(app.packageName)
+            // SEMUA APP LAIN (YouTube, TikTok, Tokopedia, Instagram, Games, dll):
+            // - Masuk VPN tunnel
+            // - DNS filtering untuk block ads
+            // - Koneksi tetap lancar
+            // - Iklan terblokir
         }
+
+        android.util.Log.d("ZeroAd_Whitelist", 
+            "🎉 Scan complete! ${list.size} apps get ISP Direct (CRITICAL ONLY)")
+        android.util.Log.d("ZeroAd_Whitelist", 
+            "🛡️ ${packages.size - list.size} apps will go through VPN tunnel for ad blocking")
+        
         return list
+    }
+    
+    /**
+     * Legacy function - tidak digunakan lagi dalam hybrid system
+     */
+    fun shouldAutoWhitelist(packageName: String): Boolean {
+        return false  // Semua check sudah dilakukan di getEssentialApps()
     }
 
     private fun startVpnService(essentialApps: ArrayList<String>? = null) {

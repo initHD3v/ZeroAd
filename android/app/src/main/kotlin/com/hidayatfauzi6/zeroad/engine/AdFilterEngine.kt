@@ -11,11 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 @Serializable
 data class BypassListContainer(val bypass_packages: List<String>)
 
-enum class AppCategory {
-    GAME,
-    SYSTEM,
-    GENERAL
-}
+// AppCategory moved to top-level AppCategory.kt for shared use across all engines
 
 class AdFilterEngine(private val context: Context) {
     private val blockedDomains = HashSet<String>()
@@ -294,7 +290,7 @@ class AdFilterEngine(private val context: Context) {
      * Smart Filtering Logic (ADGUARD-STYLE)
      * @param domain Domain yang diminta
      * @param category Kategori aplikasi pengirim
-     * 
+     *
      * Prinsip:
      * 1. Cek Google Allowlist dulu (prioritas tertinggi)
      * 2. Cek apakah domain adalah Google Ads yang harus diblokir
@@ -318,7 +314,7 @@ class AdFilterEngine(private val context: Context) {
 
         // 4. Contextual Filtering berdasarkan kategori aplikasi
         return when (category) {
-            AppCategory.GAME -> {
+            AppCategory.GAME, AppCategory.GAME_WITH_IAP, AppCategory.GAME_CASUAL -> {
                 // Untuk Game: Hanya blokir tanda tangan iklan konfirm
                 // Google Services sudah di-filter di step 2-3
                 matchRecursive(ld, hardAdsDomains)
@@ -330,6 +326,14 @@ class AdFilterEngine(private val context: Context) {
             }
             AppCategory.GENERAL -> {
                 // Untuk Browser/Lainnya: Blokir Agresif
+                matchRecursive(ld, blockedDomains)
+            }
+            // Categories lainnya - gunakan filtering penuh
+            AppCategory.GOOGLE_SERVICES, AppCategory.CRITICAL_COMM, 
+            AppCategory.BANKING, AppCategory.E_COMMERCE, 
+            AppCategory.SOCIAL_MEDIA, AppCategory.STREAMING, 
+            AppCategory.BROWSER -> {
+                // Untuk kategori ini, gunakan filtering agresif
                 matchRecursive(ld, blockedDomains)
             }
         }

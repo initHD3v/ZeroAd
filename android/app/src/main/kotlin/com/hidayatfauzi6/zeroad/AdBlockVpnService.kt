@@ -16,6 +16,13 @@ import androidx.core.app.NotificationCompat
 import com.hidayatfauzi6.zeroad.engine.AdFilterEngine
 import com.hidayatfauzi6.zeroad.engine.AppCategory
 import com.hidayatfauzi6.zeroad.engine.RoutingManager
+import com.hidayatfauzi6.zeroad.engine.WhitelistManager
+import com.hidayatfauzi6.zeroad.engine.SmartBypassEngine
+import com.hidayatfauzi6.zeroad.engine.StatisticsEngine
+import com.hidayatfauzi6.zeroad.engine.DohBlocker
+import com.hidayatfauzi6.zeroad.engine.TcpConnectionManager
+import com.hidayatfauzi6.zeroad.engine.DnsFilterEngine
+import com.hidayatfauzi6.zeroad.engine.DnsForwarder
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.DatagramPacket
@@ -23,6 +30,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.*
+import kotlinx.coroutines.runBlocking
 
 class AdBlockVpnService : VpnService() {
 
@@ -31,8 +39,22 @@ class AdBlockVpnService : VpnService() {
     private var outputExecutor: ExecutorService? = null
     private val outputQueue = LinkedBlockingQueue<ByteArray>(2000)
     private var isRunning = false
-    
+
+    // Legacy filter engine
     private lateinit var filterEngine: AdFilterEngine
+
+    // ZeroAd 2.0 engines
+    private lateinit var whitelistManager: WhitelistManager
+    private lateinit var smartBypassEngine: SmartBypassEngine
+    private lateinit var statisticsEngine: StatisticsEngine
+    private lateinit var dohBlocker: DohBlocker
+    private lateinit var tcpConnectionManager: TcpConnectionManager
+    private lateinit var dnsFilterEngine: DnsFilterEngine
+    private lateinit var dnsForwarder: DnsForwarder
+
+    // HYBRID SYSTEM: Pre-built whitelist dari MainActivity
+    private var prebuiltWhitelist: Set<String> = emptySet()
+    
     private val dnsCache = ConcurrentHashMap<String, Pair<ByteArray, Long>>()
     private val CACHE_TTL = 300000L
     private lateinit var prefs: SharedPreferences
@@ -83,6 +105,27 @@ class AdBlockVpnService : VpnService() {
         super.onCreate()
         filterEngine = AdFilterEngine(this)
         createNotificationChannel()
+        
+        // Initialize ZeroAd 2.0 engines
+        whitelistManager = WhitelistManager(this)
+        whitelistManager.loadFromPrefs()
+        
+        smartBypassEngine = SmartBypassEngine(this)
+        statisticsEngine = StatisticsEngine()
+        dohBlocker = DohBlocker()
+        tcpConnectionManager = TcpConnectionManager(this)
+        dnsForwarder = DnsForwarder(this)
+        
+        // Create DNS filter engine with all dependencies
+        dnsFilterEngine = DnsFilterEngine(
+            context = this,
+            vpnService = this,
+            whitelistManager = whitelistManager,
+            smartBypassEngine = smartBypassEngine,
+            statisticsEngine = statisticsEngine,
+            dohBlocker = dohBlocker,
+            adFilterEngine = filterEngine
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -93,19 +136,18 @@ class AdBlockVpnService : VpnService() {
                 if (outputExecutor == null) outputExecutor = Executors.newSingleThreadExecutor()
                 prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
 
+                // HYBRID SYSTEM: Get pre-built whitelist from MainActivity
                 val essentialApps = intent.getStringArrayListExtra("essential_apps") ?: arrayListOf()
+                prebuiltWhitelist = essentialApps.toSet()
                 
-                // FIXED: Jangan bypass Chrome & Google terlalu banyak - biarkan masuk tunnel untuk monitoring
-                // Hanya bypass yang benar-benar critical untuk stabilitas sistem
+                android.util.Log.d(TAG, "🎯 Pre-built whitelist loaded: ${prebuiltWhitelist.size} apps will get ISP Direct")
+
+                // Add critical system apps
                 val criticalBypassPkgs = listOf(
-                    "com.google.android.gms", // Google Play Services (harus bypass untuk IAP/Login)
-                    "com.android.vending", // Play Store (download/update APK)
+                    "com.google.android.gms", // Google Play Services
+                    "com.android.vending", // Play Store
                 )
-                
-                // Jangan bypass Chrome - biarkan masuk tunnel untuk filtering
-                // Chrome akan menggunakan DNS filtering normal
-                
-                criticalBypassPkgs.forEach { if (!essentialApps.contains(it)) essentialApps.add(it) }
+                criticalBypassPkgs.forEach { if (!prebuiltWhitelist.contains(it)) essentialApps.add(it) }
 
                 filterEngine.updateEssentialApps(essentialApps)
 
@@ -118,8 +160,8 @@ class AdBlockVpnService : VpnService() {
 
                 startForeground(NOTIFICATION_ID, createNotification())
                 startVpn()
-                
-                // FIXED: Kirim log startup ke Flutter
+
+                // Send startup log
                 addLog("${System.currentTimeMillis()}|system.service|SYSTEM|STARTED|ZeroAd|ZeroAd Service")
             }
             ACTION_UPDATE_WHITELIST -> {
@@ -141,13 +183,13 @@ class AdBlockVpnService : VpnService() {
             val newCache = mutableMapOf<Int, AppCategory>()
             for (app in apps) {
                 var category = AppCategory.GENERAL
-                
+
                 // 1. Deteksi Sistem
-                if (app.packageName.startsWith("com.android") || 
+                if (app.packageName.startsWith("com.android") ||
                     app.packageName.startsWith("com.google.android") ||
                     (app.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0) {
                     category = AppCategory.SYSTEM
-                } 
+                }
                 // 2. Deteksi Game
                 else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     if (app.category == android.content.pm.ApplicationInfo.CATEGORY_GAME ||
@@ -161,7 +203,7 @@ class AdBlockVpnService : VpnService() {
                 // 3. Fallback Heuristic Detection (Package Name Keywords)
                 if (category == AppCategory.GENERAL) {
                     val pkg = app.packageName.lowercase()
-                    if (pkg.contains("game") || pkg.contains("unity") || pkg.contains("unreal") || 
+                    if (pkg.contains("game") || pkg.contains("unity") || pkg.contains("unreal") ||
                         pkg.contains("supercell") || pkg.contains("moonton") || pkg.contains("mihoyo") ||
                         pkg.contains("tencent") || pkg.contains("roblox") || pkg.contains("garena") ||
                         pkg.contains("niantic") || pkg.contains("activision")) {
@@ -177,10 +219,10 @@ class AdBlockVpnService : VpnService() {
                         pkg.contains("bukalapak") || pkg.contains("blibli") || pkg.contains("tiktok") ||
                         pkg.contains("alibaba") || pkg.contains("amazon") || pkg.contains("ebay") ||
                         // Finance / Banking
-                        pkg.contains("bank") || pkg.contains("finance") || pkg.contains("wallet") || 
+                        pkg.contains("bank") || pkg.contains("finance") || pkg.contains("wallet") ||
                         pkg.contains("dana") || pkg.contains("ovo") || pkg.contains("gopay") ||
-                        pkg.contains("bca") || pkg.contains("mandiri") || pkg.contains("bni") || 
-                        pkg.contains("bri") || pkg.contains("cimb") || pkg.contains("jenius") || 
+                        pkg.contains("bca") || pkg.contains("mandiri") || pkg.contains("bni") ||
+                        pkg.contains("bri") || pkg.contains("cimb") || pkg.contains("jenius") ||
                         pkg.contains("jago") || pkg.contains("neobank") || pkg.contains("livin") ||
                         pkg.contains("brimo")) {
                         category = AppCategory.SYSTEM
@@ -270,7 +312,15 @@ class AdBlockVpnService : VpnService() {
                         val packetCopy = ByteArray(length); System.arraycopy(buffer.array(), 0, packetCopy, 0, length)
                         try {
                             if (executor?.isShutdown == false) {
-                                executor?.execute { forwardTCP(ByteBuffer.wrap(packetCopy), ipHeaderLen) }
+                                // Cek apakah ini dari game dengan analytics dependency
+                                val srcPort = ((packetCopy[ipHeaderLen].toInt() and 0xFF) shl 8) or (packetCopy[ipHeaderLen + 1].toInt() and 0xFF)
+                                if (shouldBypassTCPForGame(srcPort, packetCopy)) {
+                                    // Bypass TCP langsung ke internet (no filtering)
+                                    executor?.execute { forwardTCPBypass(ByteBuffer.wrap(packetCopy), ipHeaderLen) }
+                                } else {
+                                    // Normal TCP forwarding dengan filtering
+                                    executor?.execute { forwardTCP(ByteBuffer.wrap(packetCopy), ipHeaderLen) }
+                                }
                             }
                         } catch (e: RejectedExecutionException) {}
                     }
@@ -301,7 +351,15 @@ class AdBlockVpnService : VpnService() {
                         val packetCopy = ByteArray(length); System.arraycopy(buffer.array(), 0, packetCopy, 0, length)
                         try {
                             if (executor?.isShutdown == false) {
-                                executor?.execute { forwardTCP(ByteBuffer.wrap(packetCopy), ipHeaderLen) }
+                                // Cek apakah ini dari game dengan analytics dependency
+                                val srcPort = ((packetCopy[ipHeaderLen].toInt() and 0xFF) shl 8) or (packetCopy[ipHeaderLen + 1].toInt() and 0xFF)
+                                if (shouldBypassTCPForGame(srcPort, packetCopy)) {
+                                    // Bypass TCP langsung ke internet (no filtering)
+                                    executor?.execute { forwardTCPBypass(ByteBuffer.wrap(packetCopy), ipHeaderLen) }
+                                } else {
+                                    // Normal TCP forwarding dengan filtering
+                                    executor?.execute { forwardTCP(ByteBuffer.wrap(packetCopy), ipHeaderLen) }
+                                }
                             }
                         } catch (e: RejectedExecutionException) {}
                     }
@@ -312,75 +370,165 @@ class AdBlockVpnService : VpnService() {
         }
     }
 
+    /**
+     * Games that MUST bypass VPN (ISP Direct) due to connectivity issues
+     * These games detect VPN and show "Server unavailable"
+     */
+    private val gamesNeedISPDirect = setOf(
+        "com.twoheadedshark.tco",      // TCO - Server unavailable with VPN
+        "com.miniclip.realsniper",     // Pure Sniper - IAP fails with VPN
+        // Add more games here if they have issues
+    )
+    
+    /**
+     * Check if app is a game package
+     * Games get special handling: AdGuard DNS filtering + No logging
+     */
+    private fun isGamePackage(pkg: String): Boolean {
+        val gamePatterns = listOf(
+            // Game publishers
+            "twoheadedshark", "miniclip", "garena", "gameloft",
+            "mobile.legends", "tencent.ig", "pubg", "pubgmobile",
+            "riotgames", "supercell", "miHoYo", "mihoyo",
+            "roblox", "ea.", "ubisoft", "activision", "blizzard",
+            "netease", "square.enix", "YoStar", "yostar",
+            "boltrend", "lilithgame", "igg.android",
+            "topwar", "funplus", "dts.freefire", "dts.",
+            "moonton", "epicgames", "mojang", "innersloth",
+            "axlebolt", "krafton", "pearlabyss", "com2us",
+            "netmarble", "ncsoft", "devsisters",
+            // Game engines (might indicate game)
+            "unity", "unreal", "cocos2d", "godot"
+        )
+        return gamePatterns.any { pkg.contains(it) }
+    }
+    
+    /**
+     * Check if game needs ISP Direct bypass (no tunnel)
+     */
+    private fun needsISPDirectBypass(pkg: String): Boolean {
+        return gamesNeedISPDirect.contains(pkg)
+    }
+    
+    /**
+     * Handle DNS request - main entry point for all DNS queries
+     */
     private fun handleDnsRequest(packet: ByteBuffer, ipHeaderLen: Int) {
         try {
             val dnsInfo = SimpleDnsParser.parse(packet, ipHeaderLen) ?: return
-            val domain = dnsInfo.domain.lowercase().trimEnd('.')
-
-            // --- ADGUARD-STYLE: SMART FILTERING ---
-
-            // 1. Identifikasi Aplikasi Pengirim Dahulu
             val srcPort = packet.getShort(ipHeaderLen).toInt() and 0xFFFF
             val appInfo = identifyAppFast(srcPort, packet)
-            val category = uidCategoryCache[appInfo.first] ?: AppCategory.GENERAL
             val pkg = appInfo.second
-
-            // 2. ADGUARD-STYLE: Google Play Services Detection
-            // Deteksi package Google Play Services untuk bypass otomatis
-            val isGooglePackage = pkg.startsWith("com.google.android.gms") ||
-                                 pkg.startsWith("com.android.vending") ||
-                                 pkg == "com.google.android.gsf" ||
-                                 pkg.startsWith("com.google.android.play") ||
-                                 pkg == "com.android.chrome" ||
-                                 pkg.startsWith("com.chrome.")
-
-            if (isGooglePackage) {
-                // ALLOW SEMUA traffic dari Google Play Services
-                // Ini menjamin IAP, Login, dan Play Store tetap berfungsi
-                forwardAndSendResponse(packet, dnsInfo, ipHeaderLen, "GOOGLE_PKG", "PASS (Google Services)")
+            
+            // Check if this is a game that needs ISP Direct bypass
+            if (isGamePackage(pkg)) {
+                if (needsISPDirectBypass(pkg)) {
+                    // ✅ Problematic game: Forward directly to ISP (no filtering)
+                    handleBypassGameDnsQuery(packet, dnsInfo, ipHeaderLen)
+                } else {
+                    // ✅ Normal game: AdGuard DNS filtering, NO logging
+                    handleGameDnsQuery(packet, dnsInfo, ipHeaderLen, appInfo)
+                }
                 return
             }
-
-            // 3. Cek Whitelist Dahulu (Prioritas Tertinggi)
-            if (filterEngine.isWhitelisted(domain)) {
-                forwardAndSendResponse(packet, dnsInfo, ipHeaderLen, "SYSTEM", "PASS (Whitelisted)")
-                return
-            }
-
-            // 4. Cek DNS Cache
-            val cachedResponse = dnsCache[domain]
-            if (cachedResponse != null && (System.currentTimeMillis() - cachedResponse.second < CACHE_TTL)) {
-                sendCachedResponse(packet, cachedResponse.first, dnsInfo, ipHeaderLen)
-                asyncLog(packet, domain, ipHeaderLen, category.name, "PASS (Cached)")
-                return
-            }
-
-            // 5. ADGUARD-STYLE: Google Services Domain Detection
-            // Deteksi domain Google yang legit berdasarkan pattern
-            if (isGoogleServiceDomain(domain)) {
-                forwardAndSendResponse(packet, dnsInfo, ipHeaderLen, "GOOGLE_DOMAIN", "PASS (Google Allowed)")
-                return
-            }
-
-            // 6. Keputusan Blokir Kontekstual
-            // Jika aplikasi adalah GAME, kita hanya memblokir domain yang masuk kategori Hard-Ads.
-            // Jika aplikasi adalah GENERAL (Browser, dll), kita blokir agresif.
-            if (filterEngine.shouldBlock(domain, category)) {
-                // Gunakan NXDOMAIN untuk Game agar app segera fallback/ignore, Null IP untuk lainnya
-                val res = SimpleDnsParser.createNxDomainResponse(packet, ipHeaderLen)
-                outputQueue.offer(res)
-                updateNotificationCounter()
-
-                addLog("${System.currentTimeMillis()}|$domain|FILTER|BLOCKED|${appInfo.second}|${appInfo.third}")
-                return
-            }
-
-            // 7. Jika lolos, Forward segera
-            forwardAndSendResponse(packet, dnsInfo, ipHeaderLen, "GENERAL", "ALLOWED")
-
+            
+            // Non-game: Normal handling with logging
+            handleNonGameDnsQuery(packet, dnsInfo, ipHeaderLen, appInfo)
+            
         } catch (e: Exception) {
-            Log.e(TAG, "DNS Handle Error (Fail-Safe Triggered)", e)
+            Log.e(TAG, "DNS handle error", e)
             forwardOriginalQueryFailSafe(packet, ipHeaderLen)
+        }
+    }
+    
+    /**
+     * Handle DNS query for games that need ISP Direct bypass
+     * - Forward directly to ISP DNS (no filtering)
+     * - NO logging (no Live Activity)
+     * - Full connectivity (no ad blocking)
+     */
+    private fun handleBypassGameDnsQuery(packet: ByteBuffer, dnsInfo: SimpleDnsParser.DnsInfo, ipHeaderLen: Int) {
+        executor?.execute {
+            try {
+                // Forward directly to ISP DNS (no filtering)
+                val response = forwardQueryShared(dnsInfo.payload)
+                
+                if (response != null) {
+                    sendSimpleDnsPacket(packet, response, ipHeaderLen)
+                    // ❌ NO LOGGING for games!
+                } else {
+                    // Fallback
+                    forwardOriginalQueryFailSafe(packet, ipHeaderLen)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Bypass game DNS error for ${dnsInfo.domain}", e)
+                forwardOriginalQueryFailSafe(packet, ipHeaderLen)
+            }
+        }
+    }
+    
+    /**
+     * Handle DNS query for games
+     * - Forward to AdGuard DNS (ads blocked)
+     * - NO logging (no Live Activity)
+     * - Critical domains allowed
+     */
+    private fun handleGameDnsQuery(packet: ByteBuffer, dnsInfo: SimpleDnsParser.DnsInfo, 
+                                   ipHeaderLen: Int, appInfo: Triple<Int, String, String>) {
+        executor?.execute {
+            try {
+                // Use DNS filter engine with game-optimized rules
+                val response = runBlocking {
+                    dnsFilterEngine.handleDnsQuery(packet, ipHeaderLen, 
+                        DnsFilterEngine.AppInfo(
+                            packageName = appInfo.second,
+                            appName = appInfo.third,
+                            uid = appInfo.first,
+                            category = AppCategory.GAME
+                        )
+                    )
+                }
+                
+                if (response != null) {
+                    sendSimpleDnsPacket(packet, response, ipHeaderLen)
+                    // ❌ NO LOGGING for games!
+                    // Log.d(TAG, "Game DNS success: ${dnsInfo.domain}")
+                } else {
+                    // Fallback if filtering fails
+                    forwardOriginalQueryFailSafe(packet, ipHeaderLen)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Game DNS error for ${dnsInfo.domain}", e)
+                forwardOriginalQueryFailSafe(packet, ipHeaderLen)
+            }
+        }
+    }
+    
+    /**
+     * Handle DNS query for non-game apps
+     * - Full filtering
+     * - WITH logging (Live Activity)
+     */
+    private fun handleNonGameDnsQuery(packet: ByteBuffer, dnsInfo: SimpleDnsParser.DnsInfo, 
+                                      ipHeaderLen: Int, appInfo: Triple<Int, String, String>) {
+        val category = uidCategoryCache[appInfo.first] ?: AppCategory.GENERAL
+        val newAppInfo = DnsFilterEngine.AppInfo(
+            packageName = appInfo.second,
+            appName = appInfo.third,
+            uid = appInfo.first,
+            category = category
+        )
+
+        executor?.execute {
+            try {
+                val response = runBlocking {
+                    dnsFilterEngine.handleDnsQuery(packet, ipHeaderLen, newAppInfo)
+                }
+                sendSimpleDnsPacket(packet, response, ipHeaderLen)
+            } catch (e: Exception) {
+                Log.e(TAG, "DNS filter error, fallback to legacy", e)
+                forwardOriginalQueryFailSafe(packet, ipHeaderLen)
+            }
         }
     }
 
@@ -479,7 +627,7 @@ class AdBlockVpnService : VpnService() {
 
     private fun asyncLog(packet: ByteBuffer, domain: String, ipHeaderLen: Int, category: String, action: String) {
         val srcPort = packet.getShort(ipHeaderLen).toInt() and 0xFFFF
-        
+
         // FIXED: Copy packet dengan benar sebelum di-consume
         val packetCopy = ByteBuffer.allocate(packet.limit())
         val originalPosition = packet.position()
@@ -491,9 +639,16 @@ class AdBlockVpnService : VpnService() {
         try {
             // FIXED: Langsung log tanpa executor untuk memastikan log terkirim
             val appInfo = identifyAppFast(srcPort, packetCopy)
+            
+            // ❌ SKIP logging for games!
+            if (isGamePackage(appInfo.second)) {
+                // Games don't appear in Live Activity
+                return
+            }
+            
             val logEntry = "${System.currentTimeMillis()}|$domain|$category|$action|${appInfo.second}|${appInfo.third}"
             addLog(logEntry)
-            
+
             // Debug log untuk troubleshooting
             // Log.d(TAG, "AsyncLog: $logEntry")
         } catch (e: Exception) {
@@ -507,23 +662,160 @@ class AdBlockVpnService : VpnService() {
     private fun identifyAppFast(srcPort: Int, packet: ByteBuffer): Triple<Int, String, String> {
         val now = System.currentTimeMillis()
         val cached = portUidCache[srcPort]
-        
+
         val uid = if (cached != null && (now - cached.timestamp < PORT_CACHE_TTL)) {
             cached.uid
         } else {
             val srcIp = getSourceIp(packet)
             val destIp = getDestIp(packet)
             val resolvedUid = getUidForPort(srcPort, srcIp, destIp)
-            
+
             // Cache hasil, bahkan jika -1 (dengan TTL lebih singkat untuk -1)
             val ttl = if (resolvedUid > 0) PORT_CACHE_TTL else 5000L // 5 detik untuk unknown
             portUidCache[srcPort] = UidEntry(resolvedUid, now)
             resolvedUid
         }
-        
+
         val pkg = getPackageNameFromUid(uid)
         val name = getAppNameFromPackage(pkg)
         return Triple(uid, pkg, name)
+    }
+    
+    /**
+     * HYBRID SYSTEM: Check if app should be bypassed
+     * Menggunakan pre-built whitelist dari MainActivity (scan saat VPN start)
+     * Tidak perlu on-demand check lagi - semua sudah di-scan di awal!
+     */
+    private fun shouldBypassApp(pkg: String): Boolean {
+        // Check pre-built whitelist (dari MainActivity.getEssentialApps())
+        if (prebuiltWhitelist.contains(pkg)) {
+            Log.d(TAG, "✅ BYPASS Pre-built Whitelist: $pkg")
+            return true
+        }
+        
+        // Fallback: Check hard analytics dependency (games)
+        if (hasHardAnalyticsDependency(pkg)) {
+            Log.d(TAG, "✅ BYPASS Hard Analytics: $pkg")
+            return true
+        }
+        
+        Log.d(TAG, "❌ FILTER: $pkg")
+        return false
+    }
+
+    /**
+     * Deteksi game yang punya hard dependency pada analytics/tracking
+     * Game seperti ini tidak bisa load jika analytics di-block (akan stuck di "Server unavailable")
+     * Solusi: Forward semua DNS untuk game ini (soft whitelist)
+     */
+    private fun hasHardAnalyticsDependency(pkg: String): Boolean {
+        // Game yang diketahui menggunakan analytics SDK dengan hard dependency
+        val hardAnalyticsGames = listOf(
+            "twoheadedshark",  // Two Headed Shark (developer TCO)
+            "tco",             // Tuning Club Online (short name)
+            "tuningclub",      // Alternative keyword
+        )
+
+        // Cek apakah package mengandung keyword
+        val lowerPkg = pkg.lowercase()
+        
+        // Debug log untuk tracking
+        Log.d(TAG, "Checking hard analytics for: $pkg")
+        
+        if (hardAnalyticsGames.any { lowerPkg.contains(it) }) {
+            Log.d(TAG, "Matched hard analytics dependency: $pkg")
+            return true
+        }
+
+        // Cek apakah game menggunakan Yandex SDK (dari package name)
+        if (lowerPkg.contains("yandex")) {
+            Log.d(TAG, "Matched Yandex SDK: $pkg")
+            return true
+        }
+
+        return false
+    }
+
+    /**
+     * Cek apakah TCP dari game ini harus di-bypass (tanpa filtering)
+     * Game dengan hard analytics dependency perlu TCP bypass agar connect stabil
+     */
+    private fun shouldBypassTCPForGame(srcPort: Int, packet: ByteArray): Boolean {
+        val uid = getUidForPortFromPacket(srcPort, packet)
+        if (uid <= 0) return false
+
+        val pkg = getPackageNameFromUid(uid)
+        
+        // Check menggunakan shouldBypassApp (on-demand, tidak scan semua apps)
+        return shouldBypassApp(pkg)
+    }
+
+    /**
+     * Get UID dari packet TCP (helper untuk bypass detection)
+     */
+    private fun getUidForPortFromPacket(srcPort: Int, packet: ByteArray): Int {
+        // Parse IP header untuk dapatkan src IP
+        val version = (packet[0].toInt() shr 4) and 0x0F
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+                val srcIp = if (version == 4) {
+                    InetAddress.getByAddress(packet.copyOfRange(12, 16)).hostAddress
+                } else {
+                    InetAddress.getByAddress(packet.copyOfRange(8, 24)).hostAddress
+                } ?: return -1
+                
+                cm.getConnectionOwnerUid(android.system.OsConstants.IPPROTO_TCP,
+                    java.net.InetSocketAddress(InetAddress.getByName(srcIp), srcPort),
+                    java.net.InetSocketAddress(InetAddress.getByName("0.0.0.0"), 0))
+            } else {
+                -1
+            }
+        } catch (e: Exception) {
+            -1
+        }
+    }
+
+    /**
+     * Forward TCP langsung ke internet tanpa filtering (bypass mode)
+     * Ini untuk game dengan analytics dependency yang butuh koneksi stabil
+     */
+    private fun forwardTCPBypass(packet: ByteBuffer, ipHeaderLen: Int) {
+        var socket: java.net.Socket? = null
+        try {
+            val dstPort = packet.getShort(ipHeaderLen + 2).toInt() and 0xFFFF
+            val dstIp = getDestIp(packet)
+            val payloadStart = ipHeaderLen + 20 // TCP header minimal
+            val payloadLen = packet.limit() - payloadStart
+
+            if (payloadLen <= 0) return
+
+            val payload = ByteArray(payloadLen)
+            packet.position(payloadStart)
+            packet.get(payload)
+
+            // Direct TCP connection (no filtering)
+            socket = java.net.Socket(InetAddress.getByName(dstIp), dstPort)
+            socket.soTimeout = 5000
+
+            val outputStream = socket.getOutputStream()
+            outputStream.write(payload)
+            outputStream.flush()
+
+            val inputStream = socket.getInputStream()
+            val buffer = ByteArray(4096)
+            val bytesRead = inputStream.read(buffer)
+
+            if (bytesRead > 0) {
+                val response = buffer.copyOf(bytesRead)
+                sendTCPResponse(packet, response, ipHeaderLen)
+            }
+
+        } catch (e: Exception) {
+            // TCP bypass gagal - silent fail
+        } finally {
+            try { socket?.close() } catch (e: Exception) {}
+        }
     }
 
     private fun forwardOriginalQueryFailSafe(packet: ByteBuffer, ipHeaderLen: Int) {
@@ -547,21 +839,38 @@ class AdBlockVpnService : VpnService() {
             socket = DatagramSocket()
             protect(socket)
             socket.soTimeout = 2000
-            val dnsServer = getSystemDns() ?: "8.8.8.8"
             
-            // FIXED: Log DNS forwarding untuk debugging
-            // Log.d(TAG, "Forwarding DNS query to: $dnsServer")
+            val primaryDns = getSystemDns() ?: "8.8.8.8"
             
-            val out = DatagramPacket(payload, payload.size, InetAddress.getByName(dnsServer), 53)
-            val inData = ByteArray(1500); val inP = DatagramPacket(inData, inData.size)
-            socket.send(out)
-            socket.receive(inP)
-            return inData.copyOf(inP.length)
-        } catch (e: Exception) { 
+            // Coba DNS utama dulu
+            try {
+                val out = DatagramPacket(payload, payload.size, InetAddress.getByName(primaryDns), 53)
+                val inData = ByteArray(1500); val inP = DatagramPacket(inData, inData.size)
+                socket.send(out)
+                socket.receive(inP)
+                Log.d(TAG, "DNS success: $primaryDns")
+                return inData.copyOf(inP.length)
+            } catch (e: java.net.SocketTimeoutException) {
+                // Timeout! Fallback ke IPv4 DNS
+                Log.w(TAG, "DNS timeout with $primaryDns, fallback to 8.8.8.8")
+                socket.close()
+                socket = DatagramSocket()
+                protect(socket)
+                socket.soTimeout = 3000
+                
+                val fallbackDns = "8.8.8.8"
+                val out = DatagramPacket(payload, payload.size, InetAddress.getByName(fallbackDns), 53)
+                val inData = ByteArray(1500); val inP = DatagramPacket(inData, inData.size)
+                socket.send(out)
+                socket.receive(inP)
+                Log.d(TAG, "DNS success via fallback: $fallbackDns")
+                return inData.copyOf(inP.length)
+            }
+        } catch (e: Exception) {
             Log.e(TAG, "DNS Forward Error", e)
-            return null 
-        } finally { 
-            try { socket?.close() } catch (e: Exception) {} 
+            return null
+        } finally {
+            try { socket?.close() } catch (e: Exception) {}
         }
     }
 
@@ -602,48 +911,22 @@ class AdBlockVpnService : VpnService() {
      * FIXED: Forward TCP traffic (HTTP/HTTPS)
      * Ini yang membuat YouTube, browser, Instagram, dll bisa connect!
      * VPN hanya meneruskan TCP tanpa filtering (hanya DNS yang difilter)
+     * 
+     * ZeroAd 2.0: Uses TcpConnectionManager for connection pooling
      */
     private fun forwardTCP(packet: ByteBuffer, ipHeaderLen: Int) {
-        var socket: java.net.Socket? = null
-        try {
-            val dstPort = packet.getShort(ipHeaderLen + 2).toInt() and 0xFFFF
-            val dstIp = getDestIp(packet)
-            
-            // Extract TCP payload
-            val tcpHeaderLen = ((packet.get(ipHeaderLen + 12).toInt() and 0xF0) shr 2)
-            val payloadStart = ipHeaderLen + tcpHeaderLen
-            val payloadLen = packet.limit() - payloadStart
-            
-            if (payloadLen <= 0) return
-            
-            val payload = ByteArray(payloadLen)
-            packet.position(payloadStart)
-            packet.get(payload)
-            
-            // Create TCP socket dan forward
-            socket = java.net.Socket(InetAddress.getByName(dstIp), dstPort)
-            socket.soTimeout = 5000 // 5 detik timeout untuk TCP
-            
-            // Kirim payload
-            val outputStream = socket.getOutputStream()
-            outputStream.write(payload)
-            outputStream.flush()
-            
-            // Baca response (simple forwarding)
-            val inputStream = socket.getInputStream()
-            val buffer = ByteArray(4096)
-            val bytesRead = inputStream.read(buffer)
-            
-            if (bytesRead > 0) {
-                // Kirim response balik ke VPN
-                val response = buffer.copyOf(bytesRead)
-                sendTCPResponse(packet, response, ipHeaderLen)
+        executor?.execute {
+            try {
+                val response = runBlocking {
+                    tcpConnectionManager.forwardTcp(packet, ipHeaderLen)
+                }
+                
+                if (response != null) {
+                    sendTCPResponse(packet, response, ipHeaderLen)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "TCP forward error", e)
             }
-            
-        } catch (e: Exception) {
-            // TCP forwarding gagal - ini OK untuk beberapa kasus
-        } finally {
-            try { socket?.close() } catch (e: Exception) {}
         }
     }
     
@@ -770,7 +1053,12 @@ class AdBlockVpnService : VpnService() {
 
     private fun stopVpn() {
         isRunning = false
-        executor?.shutdown(); outputExecutor?.shutdown()
+        executor?.shutdown()
+        outputExecutor?.shutdown()
+        
+        // Cleanup ZeroAd 2.0 engines
+        tcpConnectionManager.cleanup()
+        
         try { vpnInterface?.close() } catch (e: Exception) {}
         vpnInterface = null
         stopSelf()
