@@ -223,8 +223,9 @@ class BlocklistService {
             break;
           }
         }
-        if (isProtectedGoogleService)
+        if (isProtectedGoogleService) {
           continue; // SKIP - jangan masukkan ke blocklist
+        }
 
         // 2. Check Google Ads domains - HARUS diblokir
         // Domain ini tidak boleh masuk whitelist meskipun mengandung "google"

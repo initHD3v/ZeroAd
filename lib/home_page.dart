@@ -305,8 +305,9 @@ class _MyHomePageState extends State<MyHomePage>
     return Consumer<SecurityProvider>(
       builder: (context, security, child) {
         if (security.isAdBlockActive && _currentIndex == 1) {
-          if (!_breathingController.isAnimating)
+          if (!_breathingController.isAnimating) {
             _breathingController.repeat(reverse: true);
+          }
         } else {
           _breathingController.stop();
         }
