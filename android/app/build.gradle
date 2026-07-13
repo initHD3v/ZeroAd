@@ -1,7 +1,7 @@
 plugins {
     id "com.android.application"
     id "kotlin-android"
-    id "org.jetbrains.kotlin.plugin.serialization" version "1.9.0"
+    id "org.jetbrains.kotlin.plugin.serialization" version "2.1.0"
     id "dev.flutter.flutter-gradle-plugin"
 }
 
@@ -68,7 +68,7 @@ flutter {
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3"
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0"
     implementation "io.sentry:sentry-android:7.22.1" // Crash reporting
 }
