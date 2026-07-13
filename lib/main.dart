@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:zeroad/home_page.dart'; 
 import 'package:zeroad/logic/security_provider.dart';
 
-void main() {
-  runApp(
-    ChangeNotifierProvider(
-      create: (_) => SecurityProvider()..init(),
-      child: const MyApp(),
+Future<void> main() async {
+  await SentryFlutter.init(
+    (options) {
+      options.dsn = 'https://examplePublicKey@o0.ingest.sentry.io/0';
+      options.tracesSampleRate = 0.2;
+    },
+    appRunner: () => runApp(
+      ChangeNotifierProvider(
+        create: (_) => SecurityProvider()..init(),
+        child: const MyApp(),
+      ),
     ),
   );
 }

@@ -5,12 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
-import android.content.ComponentName
+import android.util.Log
 import android.Manifest
 import androidx.annotation.NonNull
 import androidx.core.app.ActivityCompat
@@ -51,9 +49,6 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         var logSink: EventChannel.EventSink? = null
-        var instance: MainActivity? = null // Reference untuk AdBlockVpnService
-
-        // Gunakan Handler Utama agar pengiriman log ke Flutter selalu aman dari thread mana pun
         private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
         fun sendLogToFlutter(log: String) {
@@ -65,18 +60,10 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
-        
-        /**
-         * Static helper untuk AdBlockVpnService check auto-whitelist
-         */
-        fun shouldAutoWhitelist(packageName: String): Boolean {
-            return instance?.shouldAutoWhitelist(packageName) ?: false
-        }
     }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        instance = this // Set instance reference
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -111,10 +98,6 @@ class MainActivity : FlutterActivity() {
                                     detectedThreatsForApp.add(Threat("SYSTEM_CONTROL", "HIGH", "STEALTH_INSTALLER", "App can install other applications."))
                                     appZeroScore += 30
                                 }
-                                if (permissions.contains("android.permission.RECEIVE_BOOT_COMPLETED") && permissions.contains("android.permission.SYSTEM_ALERT_WINDOW") && !isSystemApp) {
-                                    detectedThreatsForApp.add(Threat("BEHAVIORAL", "HIGH", "BOOT_OVERLAY", "App starts at boot and draws over other apps."))
-                                    appZeroScore += 30
-                                }
                                 
                                 val components = mutableListOf<String>()
                                 packageInfo.activities?.forEach { components.add(it.name) }
@@ -125,7 +108,9 @@ class MainActivity : FlutterActivity() {
                                         appZeroScore += 15; break
                                     }
                                 }
-                            } catch (e: Exception) {}
+                            } catch (e: Exception) {
+                                Log.e("ZeroAd_MainActivity", "Error scanning package: ${appInfo.packageName}", e)
+                            }
 
                             if (detectedThreatsForApp.isNotEmpty()) {
                                 threatsDetected.add(AppThreatInfo(appInfo.packageName, appName, isSystemApp, detectedThreatsForApp, appZeroScore))
@@ -145,15 +130,9 @@ class MainActivity : FlutterActivity() {
                             pendingResult = result
                             startActivityForResult(intent, VPN_REQUEST_CODE)
                         } else {
-                            // Jika sudah diizinkan, langsung jalankan
-                            val essentialApps = getEssentialApps()
-                            startVpnService(essentialApps)
+                            startVpnService()
                             result.success(true)
                         }
-                    } catch (e: SecurityException) {
-                        // Solusi untuk MIUI UID mismatch: arahkan user ke info aplikasi untuk reset izin jika perlu
-                        android.util.Log.e("ZeroAd_MainActivity", "MIUI Security Exception Detected", e)
-                        result.error("SECURITY_ERROR", "Izin VPN ditolak oleh sistem MIUI. Silakan hapus data aplikasi dan coba lagi.", e.message)
                     } catch (e: Exception) {
                         result.error("ERROR", e.message, null)
                     }
@@ -165,7 +144,10 @@ class MainActivity : FlutterActivity() {
                     result.success(false)
                 }
 
-                "getVpnLogs" -> result.success(AdBlockVpnService.getLogs())
+                "getVpnLogs" -> {
+                    // Fitur log lama dimatikan untuk kestabilan DNS Changer
+                    result.success(listOf<String>())
+                }
 
                 "getAppIcon" -> {
                     val pkg = call.argument<String>("packageName")
@@ -186,55 +168,28 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "addToWhitelist" -> {
-                    val pkg = call.argument<String>("packageName")
-                    if (pkg != null) {
-                        val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
-                        val current = prefs.getStringSet("whitelisted_apps", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-                        current.add(pkg)
-                        val ok = prefs.edit().putStringSet("whitelisted_apps", current).commit()
-                        if (ok) { 
-                            val stopIntent = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_STOP }
-                            startService(stopIntent)
-                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ 
-                                CoroutineScope(Dispatchers.IO).launch {
-                                    val apps = getEssentialApps()
-                                    withContext(Dispatchers.Main) { startVpnService(apps) }
-                                }
-                            }, 500)
-                        }
-                        result.success(ok)
-                    } else result.error("ERROR", "Null package", null)
+                    val packageName = call.argument<String>("packageName")
+                    if (packageName != null) {
+                        WhitelistManager.addToPrefs(this, packageName)
+                        Log.d("ZeroAd_MainActivity", "Added to whitelist: $packageName")
+                    }
+                    result.success(true)
                 }
 
                 "removeFromWhitelist" -> {
-                    val pkg = call.argument<String>("packageName")
-                    if (pkg != null) {
-                        val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
-                        val current = prefs.getStringSet("whitelisted_apps", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-                        current.remove(pkg)
-                        val ok = prefs.edit().putStringSet("whitelisted_apps", current).commit()
-                        if (ok) { 
-                            val stopIntent = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_STOP }
-                            startService(stopIntent)
-                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ 
-                                CoroutineScope(Dispatchers.IO).launch {
-                                    val apps = getEssentialApps()
-                                    withContext(Dispatchers.Main) { startVpnService(apps) }
-                                }
-                            }, 500)
-                        }
-                        result.success(ok)
-                    } else result.error("ERROR", "Null package", null)
+                    val packageName = call.argument<String>("packageName")
+                    if (packageName != null) {
+                        WhitelistManager.removeFromPrefs(this, packageName)
+                        Log.d("ZeroAd_MainActivity", "Removed from whitelist: $packageName")
+                    }
+                    result.success(true)
                 }
 
                 "updateBlocklistPath" -> {
-                    val path = call.argument<String>("path")
-                    if (path != null) {
-                        val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
-                        val ok = prefs.edit().putString("dynamic_blocklist_path", path).commit()
-                        if (ok) { val i = Intent(this, AdBlockVpnService::class.java).apply { action = AdBlockVpnService.ACTION_UPDATE_WHITELIST }; startService(i) }
-                        result.success(ok)
-                    } else result.error("ERROR", "Null path", null)
+                    // Reload blocklists on the VPN service if running
+                    AdBlockVpnService.instance?.reloadBlocklists()
+                    Log.d("ZeroAd_MainActivity", "Blocklist path updated, reload triggered")
+                    result.success(true)
                 }
 
                 else -> result.notImplemented()
@@ -245,89 +200,16 @@ class MainActivity : FlutterActivity() {
             object : EventChannel.StreamHandler {
                 override fun onListen(args: Any?, events: EventChannel.EventSink?) { 
                     logSink = events
-                    // Kirim ulang log terakhir saat UI terhubung
-                    CoroutineScope(Dispatchers.IO).launch {
-                        val logs = AdBlockVpnService.getLogs()
-                        withContext(Dispatchers.Main) {
-                            for (log in logs) { sendLogToFlutter(log) }
-                        }
-                    }
+                    sendLogToFlutter("${System.currentTimeMillis()}|system|SYSTEM|READY|ZeroAd|DNS Changer Ready")
                 }
                 override fun onCancel(args: Any?) { logSink = null }
             }
         )
     }
 
-    /**
-     * CRITICAL FIX: KEMBALIKAN KE KONSEP ZEROAD YANG BENAR
-     * 
-     * ZeroAd = VPN-based DNS Ad Blocker
-     * - SEMUA apps masuk VPN tunnel untuk filtering
-     * - TIDAK ADA bypass ke ISP Direct (kecuali system critical)
-     * - Filtering DNS yang benar untuk block ads
-     * - Koneksi tetap lancar karena filtering yang benar
-     * 
-     * ISP Direct HANYA untuk:
-     * 1. Google Play Services (IAP, Login, Download)
-     * 2. System apps critical
-     * 3. User manual whitelist (jika ada app bermasalah)
-     */
-    private fun getEssentialApps(): ArrayList<String> {
-        val list = ArrayList<String>()
-        val prefs = getSharedPreferences("ZeroAdPrefs", Context.MODE_PRIVATE)
-        val userWhitelist = prefs.getStringSet("whitelisted_apps", emptySet()) ?: emptySet()
-
-        val packages = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
-
-        android.util.Log.d("ZeroAd_Whitelist", "🔍 Scanning ${packages.size} apps for ISP Direct bypass...")
-
-        for (app in packages) {
-            val pkg = app.packageName.lowercase()
-            val appName = packageManager.getApplicationLabel(app).toString()
-
-            // 1. User Whitelist (prioritas tertinggi)
-            if (userWhitelist.contains(app.packageName)) {
-                list.add(app.packageName)
-                android.util.Log.d("ZeroAd_Whitelist", "✅ ISP Direct: $appName (${app.packageName}) - User Whitelist")
-                continue
-            }
-
-            // 2. Google Play Services CRITICAL (IAP, Login, Download)
-            // Ini SATU-SATUNYA yang perlu ISP Direct untuk fungsi critical
-            if (pkg == "com.google.android.gms" ||           // Google Play Services
-                pkg == "com.android.vending" ||              // Google Play Store
-                pkg == "com.google.android.gsf") {           // Google Services Framework
-                list.add(app.packageName)
-                android.util.Log.d("ZeroAd_Whitelist", 
-                    "✅ ISP Direct: $appName (${app.packageName}) - Critical Google Services")
-            }
-
-            // SEMUA APP LAIN (YouTube, TikTok, Tokopedia, Instagram, Games, dll):
-            // - Masuk VPN tunnel
-            // - DNS filtering untuk block ads
-            // - Koneksi tetap lancar
-            // - Iklan terblokir
-        }
-
-        android.util.Log.d("ZeroAd_Whitelist", 
-            "🎉 Scan complete! ${list.size} apps get ISP Direct (CRITICAL ONLY)")
-        android.util.Log.d("ZeroAd_Whitelist", 
-            "🛡️ ${packages.size - list.size} apps will go through VPN tunnel for ad blocking")
-        
-        return list
-    }
-    
-    /**
-     * Legacy function - tidak digunakan lagi dalam hybrid system
-     */
-    fun shouldAutoWhitelist(packageName: String): Boolean {
-        return false  // Semua check sudah dilakukan di getEssentialApps()
-    }
-
-    private fun startVpnService(essentialApps: ArrayList<String>? = null) {
+    private fun startVpnService() {
         val intent = Intent(this, AdBlockVpnService::class.java).apply { 
             action = AdBlockVpnService.ACTION_START 
-            if (essentialApps != null) putStringArrayListExtra("essential_apps", essentialApps)
         }
         startService(intent)
     }
@@ -344,10 +226,7 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE) {
             if (resultCode == Activity.RESULT_OK) { 
-                CoroutineScope(Dispatchers.IO).launch {
-                    val apps = getEssentialApps()
-                    withContext(Dispatchers.Main) { startVpnService(apps) }
-                }
+                startVpnService()
                 pendingResult?.success(true) 
             } else pendingResult?.error("REJECTED", "VPN Rejected", null)
             pendingResult = null

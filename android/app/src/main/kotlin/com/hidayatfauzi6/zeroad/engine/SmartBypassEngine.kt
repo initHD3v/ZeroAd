@@ -163,9 +163,9 @@ class SmartBypassEngine(private val context: Context) {
                 "game", "play", "app", "pro", "premium", "paid"
             )
             
-            // Check for common IAP indicators
             billingPatterns.any { lowerPkg.contains(it) }
         } catch (e: Exception) {
+            Log.w(TAG, "Error checking IAP for $packageName", e)
             false
         }
     }

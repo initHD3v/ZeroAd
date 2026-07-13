@@ -34,8 +34,8 @@ class DnsFilterEngine(
         private const val TAG = "DnsFilterEngine"
     }
     
-    // DNS forwarder
-    private val dnsForwarder = DnsForwarder(context)
+    // DNS forwarder (pass VpnService so socket protect() works correctly)
+    private val dnsForwarder = DnsForwarder(vpnService)
 
     /**
      * Handle DNS query dengan multi-layer filtering
@@ -59,14 +59,14 @@ class DnsFilterEngine(
 
         // ========== LAYER 1: User Whitelist ==========
         if (whitelistManager.isWhitelisted(packageName)) {
-            Log.d(TAG, "Layer 1: User whitelist → Forward to ISP")
+            Log.d(TAG, "Layer 1: User whitelist → Forward to AdGuard (Protected)")
             statisticsEngine.recordRequest(domain, packageName, appName, false, "USER_WHITELIST")
             return forwardToIsp(dnsInfo.payload)
         }
 
         // ========== LAYER 2: Google Services ==========
         if (isGoogleService(domain, packageName)) {
-            Log.d(TAG, "Layer 2: Google services → Forward to ISP")
+            Log.d(TAG, "Layer 2: Google services → Forward to AdGuard (Protected)")
             statisticsEngine.recordRequest(domain, packageName, appName, false, "GOOGLE_SERVICE")
             return forwardToIsp(dnsInfo.payload)
         }
@@ -78,14 +78,19 @@ class DnsFilterEngine(
             return dohBlocker.createBlockedResponse(packet, ipHeaderLen)
         }
 
-        // ========== LAYER 4: Game Soft-Whitelist ==========
-        if (isGameWithAnalytics(packageName)) {
-            Log.d(TAG, "Layer 4: Game with analytics → Forward to AdGuard")
-            statisticsEngine.recordRequest(domain, packageName, appName, false, "GAME_SOFT_WHITELIST")
+        // ========== LAYER 4: ALL Games (Soft-Whitelist) ==========
+        // SOLUSI JITU: Semua game menggunakan AdGuard DNS langsung tanpa filter lokal agresif
+        // Ini memastikan game tetap bisa dimuat (no "Server unavailable") tapi iklan tetap terblokir via AdGuard
+        if (category == AppCategory.GAME || 
+            category == AppCategory.GAME_WITH_IAP || 
+            category == AppCategory.GAME_CASUAL ||
+            isGameWithAnalytics(packageName)) {
+            Log.d(TAG, "Layer 4: Game detected → Forward to AdGuard DNS (Cloud Filtering)")
+            statisticsEngine.recordRequest(domain, packageName, appName, false, "ADGUARD_GAME_PASS")
             return try {
                 forwardToAdGuard(dnsInfo.payload)
             } catch (e: Exception) {
-                Log.w(TAG, "AdGuard timeout, fallback to ISP")
+                Log.w(TAG, "AdGuard timeout for game, fallback to ISP")
                 forwardToIsp(dnsInfo.payload)
             }
         }
@@ -136,7 +141,14 @@ class DnsFilterEngine(
     // ==================== Forwarding Methods ====================
     
     private suspend fun forwardToIsp(payload: ByteArray): ByteArray {
-        return dnsForwarder.forward(payload, DnsForwarder.DnsProvider.ISP)
+        // SOLUSI JITU: Meskipun ini layer Whitelist/System, kita TETAP gunakan AdGuard DNS
+        // agar iklan di dalam layanan tersebut tetap terfilter jika ada.
+        return try {
+            dnsForwarder.forward(payload, DnsForwarder.DnsProvider.ADGUARD)
+        } catch (e: Exception) {
+            Log.w(TAG, "AdGuard failed in ISP Layer, using real ISP fallback")
+            dnsForwarder.forward(payload, DnsForwarder.DnsProvider.ISP)
+        }
     }
     
     private suspend fun forwardToAdGuard(payload: ByteArray): ByteArray {
@@ -225,6 +237,15 @@ class DnsFilterEngine(
         
         // Others: Full filtering
         return adFilterEngine.shouldBlock(domain, AppCategory.GENERAL)
+    }
+
+    /**
+     * Cleanup resources (close sockets, etc.)
+     * Call when VPN service stops
+     */
+    fun cleanup() {
+        dnsForwarder.closeAll()
+        Log.d(TAG, "DnsFilterEngine cleaned up")
     }
 
     // ==================== Helper Classes ====================

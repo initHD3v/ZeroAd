@@ -245,7 +245,9 @@ class AdFilterEngine(private val context: Context) {
             }
             packageKeywordMap.clear()
             packageKeywordMap.putAll(newMap)
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            Log.e("AdFilterEngine", "Error building keyword map", e)
+        }
     }
 
     fun findPackageFromDomain(domain: String): String? {

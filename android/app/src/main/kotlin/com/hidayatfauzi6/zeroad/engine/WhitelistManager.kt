@@ -19,6 +19,30 @@ class WhitelistManager(private val context: Context) {
         private const val TAG = "WhitelistManager"
         private const val PREFS_NAME = "ZeroAdPrefs"
         private const val KEY_USER_WHITELIST = "whitelisted_apps"
+
+        fun addToPrefs(context: Context, packageName: String) {
+            try {
+                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val current = prefs.getStringSet(KEY_USER_WHITELIST, emptySet())?.toMutableSet() ?: mutableSetOf()
+                if (current.add(packageName)) {
+                    prefs.edit().putStringSet(KEY_USER_WHITELIST, current).apply()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error adding to whitelist prefs", e)
+            }
+        }
+
+        fun removeFromPrefs(context: Context, packageName: String) {
+            try {
+                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val current = prefs.getStringSet(KEY_USER_WHITELIST, emptySet())?.toMutableSet() ?: mutableSetOf()
+                if (current.remove(packageName)) {
+                    prefs.edit().putStringSet(KEY_USER_WHITELIST, current).apply()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error removing from whitelist prefs", e)
+            }
+        }
     }
     
     // User-selected whitelist (persistent)

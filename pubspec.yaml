@@ -31,6 +31,7 @@ dependencies:
   flutter:
     sdk: flutter
   json_annotation: ^4.9.0 # Added for JSON serialization/deserialization
+  sentry_flutter: ^8.12.0 # Crash reporting & performance monitoring
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
