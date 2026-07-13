@@ -68,6 +68,13 @@ class AdFilterEngine(private val context: Context) {
         // Android System
         "android.googleapis.com", "googleapis.l.google.com",
         
+        // Firebase Crashlytics — blocking ini bisa freeze game startup
+        "crashlytics.com", "crashlytics.googleapis.com", "firebasecrashlytics.googleapis.com",
+        
+        // Game SDK & Analytics (jangan diblokir — sering dipakai untuk fungsi non-iklan)
+        "app-measurement.com", "unityads.unity3d.com", "cdn.unity3d.com",
+        "photonengine.io", "photonengine.com", "exitgames.com",
+        
         // Other Critical Infrastructure
         "apple.com", "itunes.apple.com", "icloud.com", "mzstatic.com",
         "unity3d.com", "unity.com", "cloud.unity3d.com", "config.unity3d.com",

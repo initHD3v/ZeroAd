@@ -75,6 +75,11 @@ class BlocklistService {
     // Android System
     'android.googleapis.com',
     'googleapis.l.google.com',
+
+    // Firebase Crashlytics
+    'crashlytics.com',
+    'crashlytics.googleapis.com',
+    'firebasecrashlytics.googleapis.com',
   ];
 
   static const List<String> _protectedDomains = [
@@ -84,6 +89,8 @@ class BlocklistService {
     'github.com', 'githubusercontent.com', 'adjust.com', 'adjust.world', 'adjust.in',
     'unity3d.com', 'unity.com', 'epicgames.com', 'unrealengine.com',
     'akamaihd.net', 'cloudfront.net', 'photonengine.io', 'photonengine.com',
+    'crashlytics.com', 'crashlytics.googleapis.com',
+    'app-measurement.com',
   ];
 
   Future<bool> updateBlocklist() async {

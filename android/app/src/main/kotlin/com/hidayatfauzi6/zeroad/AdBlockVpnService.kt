@@ -34,6 +34,20 @@ class AdBlockVpnService : VpnService() {
     private lateinit var dohBlocker: DohBlocker
     private lateinit var dnsFilterEngine: DnsFilterEngine
 
+    // Per-app UID tracking (untuk kategorisasi game vs non-game)
+    private val uidCategoryCache = ConcurrentHashMap<Int, AppCategory>()
+    private val uidToPackageMap = ConcurrentHashMap<Int, String>()
+    private val uidToNameMap = ConcurrentHashMap<Int, String>()
+    private var appCacheBuilt = false
+
+    // Game yang dikenal bermasalah dengan VPN — ISP Direct (zero filtering)
+    private val gamesNeedISPDirect = setOf(
+        "com.twoheadedshark.tco",
+        "com.miniclip.realsniper",
+        "com.yandex.music",
+        "com.roblox.client",
+    )
+
     companion object {
         const val ACTION_START = "com.hidayatfauzi6.zeroad.START"
         const val ACTION_STOP = "com.hidayatfauzi6.zeroad.STOP"
@@ -100,6 +114,111 @@ class AdBlockVpnService : VpnService() {
             Log.d(TAG, "Blocklists reloaded")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to reload blocklists", e)
+        }
+    }
+
+    /**
+     * Build cache of all installed apps with their UIDs and categories.
+     * Dipanggil saat VPN start untuk per-app identification.
+     */
+    private fun buildAppCategoryCache() {
+        try {
+            val pm = packageManager
+            val installedApps = pm.getInstalledApplications(0)
+            
+            uidCategoryCache.clear()
+            uidToPackageMap.clear()
+            uidToNameMap.clear()
+            
+            for (app in installedApps) {
+                val uid = app.uid
+                val pkg = app.packageName
+                val isGame = (app.flags and android.content.pm.ApplicationInfo.FLAG_IS_GAME) != 0 ||
+                             app.category == android.content.pm.ApplicationInfo.CATEGORY_GAME
+                
+                val category = when {
+                    gamesNeedISPDirect.contains(pkg) -> AppCategory.GENERAL
+                    isGame -> AppCategory.GAME
+                    pkg.startsWith("com.google.") || pkg.startsWith("com.android.") -> AppCategory.GOOGLE_SERVICES
+                    else -> smartBypassEngine.categorizeApp(pkg)
+                }
+                
+                uidCategoryCache[uid] = category
+                uidToPackageMap[uid] = pkg
+                uidToNameMap[uid] = pm.getApplicationLabel(app).toString()
+            }
+            
+            appCacheBuilt = true
+            Log.d(TAG, "App category cache built: ${uidCategoryCache.size} apps")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to build app category cache", e)
+        }
+    }
+
+    /**
+     * Identify the app that sent a DNS packet using the local UDP source port.
+     *
+     * Android API 30+ provides getConnectionOwnerUid() which maps
+     * (protocol, srcAddr, srcPort, dstAddr, dstPort) → UID.
+     * For older APIs, fall back to GENERAL.
+     */
+    private fun identifyAppFromPacket(requestData: ByteArray, ipHeaderLen: Int): DnsFilterEngine.AppInfo {
+        if (!appCacheBuilt) buildAppCategoryCache()
+        
+        val uid = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            resolveUidApi30(requestData, ipHeaderLen)
+        } else {
+            -1
+        }
+        
+        if (uid > 0) {
+            val pkg = uidToPackageMap[uid]
+            val name = uidToNameMap[uid]
+            val category = uidCategoryCache[uid]
+            
+            if (pkg != null && category != null) {
+                return DnsFilterEngine.AppInfo(
+                    packageName = pkg,
+                    appName = name ?: pkg,
+                    uid = uid,
+                    category = category
+                )
+            }
+        }
+        
+        return DnsFilterEngine.AppInfo(
+            packageName = "unknown",
+            appName = "Unknown",
+            uid = -1,
+            category = AppCategory.GENERAL
+        )
+    }
+
+    /**
+     * Resolve UID using getConnectionOwnerUid() (API 30+).
+     */
+    private fun resolveUidApi30(requestData: ByteArray, ipHeaderLen: Int): Int {
+        return try {
+            val version = (requestData[0].toInt() shr 4) and 0x0F
+            if (version != 4) return -1 // IPv6 not supported yet
+            
+            // Extract src IP (offset 12) and dst IP (offset 16)
+            val srcIpBytes = requestData.copyOfRange(12, 16)
+            val dstIpBytes = requestData.copyOfRange(16, 20)
+            val srcAddr = java.net.InetAddress.getByAddress(srcIpBytes)
+            val dstAddr = java.net.InetAddress.getByAddress(dstIpBytes)
+            
+            // Extract src port (UDP header at ipHeaderLen) and dst port (ipHeaderLen + 2)
+            val srcPort = ((requestData[ipHeaderLen].toInt() and 0xFF) shl 8) or
+                          (requestData[ipHeaderLen + 1].toInt() and 0xFF)
+            val dstPort = ((requestData[ipHeaderLen + 2].toInt() and 0xFF) shl 8) or
+                          (requestData[ipHeaderLen + 3].toInt() and 0xFF)
+            
+            // Protocol 17 = UDP
+            getConnectionOwnerUid(17, srcAddr, srcPort, dstAddr, dstPort)
+        } catch (e: Exception) {
+            Log.w(TAG, "UID resolution failed", e)
+            -1
         }
     }
 
@@ -180,29 +299,49 @@ class AdBlockVpnService : VpnService() {
         try {
             val buffer = ByteBuffer.wrap(requestData)
             
-            // Use GENERAL category until per-app UID tracking is implemented
-            val appInfo = DnsFilterEngine.AppInfo(
-                packageName = "unknown",
-                appName = "Unknown",
-                uid = -1,
-                category = AppCategory.GENERAL
-            )
+            // Identify which app sent this DNS query
+            val appInfo = identifyAppFromPacket(requestData, ipHeaderLen)
+            
+            // ISP Direct bypass untuk game yang dikenal bermasalah dengan VPN
+            // Zero filtering — forward langsung ke ISP DNS
+            if (gamesNeedISPDirect.contains(appInfo.packageName)) {
+                Log.d(TAG, "ISP Direct bypass for ${appInfo.packageName}")
+                val dnsPayloadStart = ipHeaderLen + 8
+                val dnsPayloadLen = requestData.size - dnsPayloadStart
+                val dnsQuery = ByteArray(dnsPayloadLen)
+                System.arraycopy(requestData, dnsPayloadStart, dnsQuery, 0, dnsPayloadLen)
+                
+                try {
+                    val socket = java.net.DatagramSocket()
+                    protect(socket)
+                    socket.soTimeout = 3000
+                    val addr = java.net.InetAddress.getByName("8.8.8.8")
+                    socket.send(java.net.DatagramPacket(dnsQuery, dnsQuery.size, addr, 53))
+                    val inData = ByteArray(1500)
+                    val inP = java.net.DatagramPacket(inData, inData.size)
+                    socket.receive(inP)
+                    val dnsResponse = inData.copyOf(inP.length)
+                    val responsePacket = buildResponsePacket(requestData, ipHeaderLen, dnsResponse)
+                    outputQueue.offer(responsePacket)
+                    socket.close()
+                } catch (e: Exception) {
+                    Log.e(TAG, "ISP Direct DNS error for ${appInfo.packageName}", e)
+                }
+                return
+            }
 
             // Run through ZeroAd 2.0 multi-layer DNS filtering pipeline
+            // with PER-APP categorization
             val response = runBlocking {
                 dnsFilterEngine.handleDnsQuery(buffer, ipHeaderLen, appInfo)
             }
 
             if (response.isEmpty()) return
 
-            // DnsFilterEngine returns full IP packet for block responses,
-            // or DNS payload for forward responses
             val version = (response[0].toInt() shr 4) and 0x0F
             if (version == 4 || version == 6) {
-                // Full IP packet (from sinkhole/NXDOMAIN responses)
                 outputQueue.offer(response)
             } else {
-                // DNS payload only — wrap in IP/UDP headers
                 val responsePacket = buildResponsePacket(requestData, ipHeaderLen, response)
                 outputQueue.offer(responsePacket)
             }

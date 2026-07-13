@@ -8,17 +8,18 @@ import java.nio.ByteBuffer
 
 /**
  * ZeroAd 2.0 - DNS Filter Engine
- * 
+ *
  * Multi-layer DNS filtering pipeline:
- * 1. User Whitelist → Forward to ISP
- * 2. Google Services → Forward to ISP
+ * 1. User Whitelist → Forward to AdGuard
+ * 2. Google Services → Forward to AdGuard
  * 3. DoH Domains → Block (NXDOMAIN)
- * 4. Game Soft-Whitelist → Forward to AdGuard
- * 5. System Whitelist → Forward to ISP
- * 6. Google Ads → Block (Sinkhole)
- * 7. Local Blocklist → Block (Sinkhole)
- * 8. AdGuard DNS → Forward (default)
- * 9. Fallback ISP → Forward (timeout)
+ * 4. Games → Forward to AdGuard (no local filtering — prevents game-breakage)
+ * 5. System Apps → Forward (zero filtering)
+ * 6. System Whitelist (domain) → Forward
+ * 7. Google Ads (hard ads) → Block (Sinkhole)
+ * 8. Browser Apps → check local blocklist → Forward/Block
+ * 9. All other apps → Forward to AdGuard (AdGuard handles smart filtering)
+ * 10. ISP Fallback → Forward (timeout)
  */
 class DnsFilterEngine(
     private val context: Context,
@@ -29,18 +30,18 @@ class DnsFilterEngine(
     private val dohBlocker: DohBlocker,
     private val adFilterEngine: AdFilterEngine
 ) {
-    
+
     companion object {
         private const val TAG = "DnsFilterEngine"
     }
-    
-    // DNS forwarder (pass VpnService so socket protect() works correctly)
+
+    // DNS forwarder — shared socket pool
     private val dnsForwarder = DnsForwarder(vpnService)
 
     /**
      * Handle DNS query dengan multi-layer filtering
-     * 
-     * @return DNS response payload
+     *
+     * @return DNS response payload (full IP packet untuk block, DNS payload untuk forward)
      */
     suspend fun handleDnsQuery(
         packet: ByteBuffer,
@@ -55,20 +56,20 @@ class DnsFilterEngine(
         val appName = appInfo.appName
         val category = appInfo.category
 
-        Log.d(TAG, "DNS Query: $domain | App: $packageName ($appName) | Category: $category")
+        Log.d(TAG, "DNS: $domain | App: $packageName | Category: $category")
 
         // ========== LAYER 1: User Whitelist ==========
         if (whitelistManager.isWhitelisted(packageName)) {
-            Log.d(TAG, "Layer 1: User whitelist → Forward to AdGuard (Protected)")
+            Log.d(TAG, "Layer 1: User whitelist → Forward")
             statisticsEngine.recordRequest(domain, packageName, appName, false, "USER_WHITELIST")
-            return forwardToIsp(dnsInfo.payload)
+            return forwardToAdGuard(dnsInfo.payload)
         }
 
         // ========== LAYER 2: Google Services ==========
         if (isGoogleService(domain, packageName)) {
-            Log.d(TAG, "Layer 2: Google services → Forward to AdGuard (Protected)")
+            Log.d(TAG, "Layer 2: Google services → Forward")
             statisticsEngine.recordRequest(domain, packageName, appName, false, "GOOGLE_SERVICE")
-            return forwardToIsp(dnsInfo.payload)
+            return forwardToAdGuard(dnsInfo.payload)
         }
 
         // ========== LAYER 3: DoH Blocking ==========
@@ -78,14 +79,14 @@ class DnsFilterEngine(
             return dohBlocker.createBlockedResponse(packet, ipHeaderLen)
         }
 
-        // ========== LAYER 4: ALL Games (Soft-Whitelist) ==========
-        // SOLUSI JITU: Semua game menggunakan AdGuard DNS langsung tanpa filter lokal agresif
-        // Ini memastikan game tetap bisa dimuat (no "Server unavailable") tapi iklan tetap terblokir via AdGuard
-        if (category == AppCategory.GAME || 
-            category == AppCategory.GAME_WITH_IAP || 
+        // ========== LAYER 4: Games ==========
+        // Semua game → Forward ke AdGuard DNS, TANPA filter lokal agresif.
+        // AdGuard DNS secara cerdas memblokir iklan tanpa merusak fungsi game.
+        if (category == AppCategory.GAME ||
+            category == AppCategory.GAME_WITH_IAP ||
             category == AppCategory.GAME_CASUAL ||
             isGameWithAnalytics(packageName)) {
-            Log.d(TAG, "Layer 4: Game detected → Forward to AdGuard DNS (Cloud Filtering)")
+            Log.d(TAG, "Layer 4: Game → Forward to AdGuard (safe)")
             statisticsEngine.recordRequest(domain, packageName, appName, false, "ADGUARD_GAME_PASS")
             return try {
                 forwardToAdGuard(dnsInfo.payload)
@@ -95,62 +96,74 @@ class DnsFilterEngine(
             }
         }
 
-        // ========== LAYER 5: System Whitelist ==========
-        if (adFilterEngine.isWhitelisted(domain)) {
-            Log.d(TAG, "Layer 5: System whitelist → Forward to ISP")
-            statisticsEngine.recordRequest(domain, packageName, appName, false, "SYSTEM_WHITELIST")
-            return forwardToIsp(dnsInfo.payload)
+        // ========== LAYER 5: System Apps ==========
+        // System & Google apps → zero filtering, forward langsung
+        if (category == AppCategory.SYSTEM || category == AppCategory.GOOGLE_SERVICES) {
+            Log.d(TAG, "Layer 5: System app → Forward (zero filter)")
+            statisticsEngine.recordRequest(domain, packageName, appName, false, "SYSTEM_PASS")
+            return forwardToAdGuard(dnsInfo.payload)
         }
 
-        // ========== LAYER 6: Google Ads (Priority Block) ==========
+        // ========== LAYER 6: Domain System Whitelist ==========
+        if (adFilterEngine.isWhitelisted(domain)) {
+            Log.d(TAG, "Layer 6: Domain whitelisted → Forward")
+            statisticsEngine.recordRequest(domain, packageName, appName, false, "SYSTEM_WHITELIST")
+            return forwardToAdGuard(dnsInfo.payload)
+        }
+
+        // ========== LAYER 7: Google Ads (Hard Block) ==========
+        // Domain ini PASTI iklan — blokir di semua kategori
         if (isGoogleAds(domain)) {
-            Log.d(TAG, "Layer 6: Google Ads detected → Sinkhole")
+            Log.d(TAG, "Layer 7: Google Ads → Block")
             statisticsEngine.recordRequest(domain, packageName, appName, true, "GOOGLE_ADS_BLOCKED")
             return createSinkholeResponse(packet, ipHeaderLen)
         }
 
-        // ========== LAYER 7: Local Blocklist ==========
-        val shouldBlock = shouldBlockByCategory(domain, category)
-        if (shouldBlock) {
-            Log.d(TAG, "Layer 7: Local blocklist → Sinkhole")
-            statisticsEngine.recordRequest(domain, packageName, appName, true, "LOCAL_BLOCKED")
-            
-            // Use sinkhole for games, NXDOMAIN for others
-            return if (category == AppCategory.GAME || 
-                      category == AppCategory.GAME_WITH_IAP ||
-                      category == AppCategory.GAME_CASUAL) {
-                createSinkholeResponse(packet, ipHeaderLen)
-            } else {
-                createNxDomainResponse(packet, ipHeaderLen)
+        // ========== LAYER 8: Browser (Agresif) ==========
+        // Browser bisa handle NXDOMAIN gracefully — terapkan full blocklist
+        if (category == AppCategory.BROWSER) {
+            if (adFilterEngine.shouldBlock(domain, AppCategory.GENERAL)) {
+                Log.d(TAG, "Layer 8: Browser blocklist match → Block")
+                statisticsEngine.recordRequest(domain, packageName, appName, true, "BROWSER_BLOCKED")
+                return createNxDomainResponse(packet, ipHeaderLen)
+            }
+            Log.d(TAG, "Layer 8: Browser → Forward to AdGuard")
+            statisticsEngine.recordRequest(domain, packageName, appName, false, "ADGUARD_FORWARD")
+            return try {
+                forwardToAdGuard(dnsInfo.payload)
+            } catch (e: Exception) {
+                Log.w(TAG, "AdGuard timeout for browser, fallback to ISP")
+                forwardToIsp(dnsInfo.payload)
             }
         }
 
-        // ========== LAYER 8: AdGuard DNS (Default) ==========
-        Log.d(TAG, "Layer 8: No filter match → Forward to AdGuard")
+        // ========== LAYER 9: All Other Apps (Default) ==========
+        // Kategori lain (BANKING, E_COMMERCE, SOCIAL_MEDIA, STREAMING, GENERAL):
+        // Gunakan AdGuard DNS sebagai filter SMART — bukan blocklist lokal agresif.
+        // AdGuard DNS memblokir iklan tapi tetap mengizinkan fungsi penting.
+        Log.d(TAG, "Layer 9: Default → Forward to AdGuard")
         statisticsEngine.recordRequest(domain, packageName, appName, false, "ADGUARD_FORWARD")
 
         return try {
             forwardToAdGuard(dnsInfo.payload)
         } catch (e: Exception) {
-            // ========== LAYER 9: Fallback to ISP ==========
-            Log.w(TAG, "Layer 9: AdGuard timeout → Fallback to ISP")
+            // ========== LAYER 10: ISP Fallback ==========
+            Log.w(TAG, "AdGuard timeout → Fallback to ISP")
             forwardToIsp(dnsInfo.payload)
         }
     }
 
     // ==================== Forwarding Methods ====================
-    
+
     private suspend fun forwardToIsp(payload: ByteArray): ByteArray {
-        // SOLUSI JITU: Meskipun ini layer Whitelist/System, kita TETAP gunakan AdGuard DNS
-        // agar iklan di dalam layanan tersebut tetap terfilter jika ada.
         return try {
             dnsForwarder.forward(payload, DnsForwarder.DnsProvider.ADGUARD)
         } catch (e: Exception) {
-            Log.w(TAG, "AdGuard failed in ISP Layer, using real ISP fallback")
+            Log.w(TAG, "AdGuard failed, using ISP fallback")
             dnsForwarder.forward(payload, DnsForwarder.DnsProvider.ISP)
         }
     }
-    
+
     private suspend fun forwardToAdGuard(payload: ByteArray): ByteArray {
         return dnsForwarder.forward(payload, DnsForwarder.DnsProvider.ADGUARD)
     }
@@ -172,33 +185,28 @@ class DnsFilterEngine(
     // ==================== Detection Methods ====================
 
     private fun isGoogleService(domain: String, packageName: String): Boolean {
-        // Check Google package
-        if (packageName.startsWith("com.google.") || 
+        if (packageName.startsWith("com.google.") ||
             packageName.startsWith("com.android.")) {
             return true
         }
-        
-        // Check Google service domains
+
         val googleServicePatterns = listOf(
             "googleapis.com", "googleusercontent.com", "gstatic.com",
             "gvt1.com", "googlevideo.com", "ggpht.com",
             "play.googleapis.com", "android.googleapis.com",
             "firebaseio.com", "firebase.googleapis.com",
-            "firestore.googleapis.com", "fcm.googleapis.com"
+            "firestore.googleapis.com", "fcm.googleapis.com",
+            "playbilling.googleapis.com", "gameservices.google.com",
+            "identitytoolkit.googleapis.com",
         )
-        
+
         return googleServicePatterns.any { domain.contains(it) }
     }
 
     private fun isGameWithAnalytics(packageName: String): Boolean {
-        // Games known to have hard analytics dependencies
         val hardAnalyticsGames = listOf(
-            "twoheadedshark",  // TCO developer
-            "tco",             // Tuning Club Online
-            "tuningclub",
-            "yandex"           // Yandex SDK games
+            "twoheadedshark", "tco", "tuningclub", "yandex"
         )
-        
         val lowerPkg = packageName.lowercase()
         return hardAnalyticsGames.any { lowerPkg.contains(it) }
     }
@@ -215,28 +223,9 @@ class DnsFilterEngine(
             "ad.doubleclick.net",
             "2mdn.net"
         )
-        
-        return googleAdsPatterns.any { 
-            domain == it || domain.endsWith(".$it") 
+        return googleAdsPatterns.any {
+            domain == it || domain.endsWith(".$it")
         }
-    }
-
-    private fun shouldBlockByCategory(domain: String, category: AppCategory): Boolean {
-        // Games: Only block hard ads
-        if (category == AppCategory.GAME || 
-            category == AppCategory.GAME_WITH_IAP ||
-            category == AppCategory.GAME_CASUAL) {
-            return adFilterEngine.shouldBlock(domain, AppCategory.GAME)
-        }
-        
-        // System/Google: Never block
-        if (category == AppCategory.SYSTEM || 
-            category == AppCategory.GOOGLE_SERVICES) {
-            return false
-        }
-        
-        // Others: Full filtering
-        return adFilterEngine.shouldBlock(domain, AppCategory.GENERAL)
     }
 
     /**
