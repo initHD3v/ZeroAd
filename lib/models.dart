@@ -36,7 +36,8 @@ class AppThreatInfo {
     this.zeroScore = 0, // Default to 0 if not provided
   });
 
-  factory AppThreatInfo.fromJson(Map<String, dynamic> json) => _$AppThreatInfoFromJson(json);
+  factory AppThreatInfo.fromJson(Map<String, dynamic> json) =>
+      _$AppThreatInfoFromJson(json);
   Map<String, dynamic> toJson() => _$AppThreatInfoToJson(this);
 }
 
@@ -52,6 +53,7 @@ class ScanResultModel {
     required this.threats,
   });
 
-  factory ScanResultModel.fromJson(Map<String, dynamic> json) => _$ScanResultModelFromJson(json);
+  factory ScanResultModel.fromJson(Map<String, dynamic> json) =>
+      _$ScanResultModelFromJson(json);
   Map<String, dynamic> toJson() => _$ScanResultModelToJson(this);
 }

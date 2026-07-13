@@ -225,8 +225,7 @@ class ThreatDatabase {
         'risk':
             'Aplikasi melakukan tindakan yang tidak lazim di latar belakang.',
         'impact': 'Dapat mengganggu kinerja HP atau privasi Anda.',
-        'recommendation':
-            'Hapus jika Anda tidak merasa memasang aplikasi ini.',
+        'recommendation': 'Hapus jika Anda tidak merasa memasang aplikasi ini.',
       },
       'en': {
         'title': 'Suspicious Activity',

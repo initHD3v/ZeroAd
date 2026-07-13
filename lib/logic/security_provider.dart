@@ -12,10 +12,10 @@ import 'package:zeroad/logic/blocklist_service.dart';
 ScanResultModel _processScanData(Map<String, dynamic> data) {
   final String response = data['response'];
   final List<String> whitelist = data['whitelist'];
-  
+
   final Map<String, dynamic> jsonResponse = jsonDecode(response);
   final ScanResultModel fullResult = ScanResultModel.fromJson(jsonResponse);
-  
+
   final List<AppThreatInfo> filteredThreats = fullResult.threats
       .where((threat) => !whitelist.contains(threat.packageName))
       .toList();
@@ -29,7 +29,9 @@ ScanResultModel _processScanData(Map<String, dynamic> data) {
 
 /// [SecurityProvider] mengelola State aplikasi secara reaktif menggunakan Provider.
 class SecurityProvider with ChangeNotifier {
-  static const MethodChannel _platform = MethodChannel('zeroad.security/scanner');
+  static const MethodChannel _platform = MethodChannel(
+    'zeroad.security/scanner',
+  );
   static const EventChannel _stream = EventChannel('zeroad.security/stream');
 
   // -- State Data --
@@ -39,7 +41,7 @@ class SecurityProvider with ChangeNotifier {
   ScanResultModel? _lastScanResult;
   bool _isScanning = false;
   String _logFilter = 'ALL';
-  
+
   // Performance optimized state
   final Map<String, List<String>> _groupedLogs = {};
   final Map<String, String> _appNames = {};
@@ -59,11 +61,11 @@ class SecurityProvider with ChangeNotifier {
   ScanResultModel? get lastScanResult => _lastScanResult;
   bool get isScanning => _isScanning;
   String get logFilter => _logFilter;
-  
+
   Map<String, List<String>> get groupedLogs => _groupedLogs;
   Map<String, String> get appNames => _appNames;
   List<String> get sortedPkgKeys => _sortedPkgKeys;
-  
+
   int get blockedDomainsCount => _blockedDomainsCount;
   int get autoWhitelistedCount => _autoWhitelistedCount;
   DateTime? get lastBlocklistUpdate => _lastBlocklistUpdate;
@@ -79,7 +81,7 @@ class SecurityProvider with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _isAdBlockActive = prefs.getBool('adblock_active') ?? false;
     _trustedPackages = prefs.getStringList('whitelisted_apps') ?? [];
-    
+
     // Load blocklist info
     _blockedDomainsCount = await _blocklistService.getBlocklistCount();
     _autoWhitelistedCount = await _blocklistService.getWhitelistCount();
@@ -87,7 +89,7 @@ class SecurityProvider with ChangeNotifier {
     if (lastUpdate != null) {
       _lastBlocklistUpdate = DateTime.fromMillisecondsSinceEpoch(lastUpdate);
     }
-    
+
     _nativeSub?.cancel();
     _nativeSub = _stream.receiveBroadcastStream().listen((log) {
       _pendingLogs.add(log.toString());
@@ -99,13 +101,13 @@ class SecurityProvider with ChangeNotifier {
 
   void _startBatchTimer() {
     if (_batchTimer?.isActive ?? false) return;
-    
+
     _batchTimer = Timer(const Duration(milliseconds: 600), () {
       if (_pendingLogs.isNotEmpty) {
         // Gabungkan log baru dengan log lama, filter duplikasi domain beruntun
         final List<String> newLogs = [];
         String? lastDomain;
-        
+
         for (var log in _pendingLogs.reversed) {
           final parts = log.split('|');
           if (parts.length > 5) {
@@ -117,7 +119,7 @@ class SecurityProvider with ChangeNotifier {
               // Pre-process for ActivityTab
               final pkg = parts[4];
               final name = parts[5];
-              
+
               _groupedLogs.putIfAbsent(pkg, () => []).add(log);
               _appNames[pkg] = name;
             }
@@ -126,15 +128,15 @@ class SecurityProvider with ChangeNotifier {
 
         _vpnLogs.insertAll(0, newLogs);
         if (_vpnLogs.length > 300) {
-           _vpnLogs = _vpnLogs.sublist(0, 300);
-           // Prune grouped logs when vpnLogs are pruned
-           _rebuildGroupedLogs();
+          _vpnLogs = _vpnLogs.sublist(0, 300);
+          // Prune grouped logs when vpnLogs are pruned
+          _rebuildGroupedLogs();
         } else {
-           _sortedPkgKeys = _groupedLogs.keys.toList();
+          _sortedPkgKeys = _groupedLogs.keys.toList();
         }
-        
+
         _pendingLogs.clear();
-        notifyListeners(); 
+        notifyListeners();
       }
     });
   }
@@ -169,7 +171,7 @@ class SecurityProvider with ChangeNotifier {
         if (path != null) {
           // Kirim path ke native
           await _platform.invokeMethod('updateBlocklistPath', {'path': path});
-          
+
           // Update local state
           _blockedDomainsCount = await _blocklistService.getBlocklistCount();
           _autoWhitelistedCount = await _blocklistService.getWhitelistCount();
@@ -186,12 +188,14 @@ class SecurityProvider with ChangeNotifier {
 
   Future<void> toggleAdBlock() async {
     try {
-      final bool result = await _platform.invokeMethod(_isAdBlockActive ? 'stopAdBlock' : 'startAdBlock');
+      final bool result = await _platform.invokeMethod(
+        _isAdBlockActive ? 'stopAdBlock' : 'startAdBlock',
+      );
       _isAdBlockActive = result;
-      
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('adblock_active', _isAdBlockActive);
-      
+
       notifyListeners();
     } catch (e) {
       debugPrint("VPN Toggle Error: $e");
@@ -211,14 +215,14 @@ class SecurityProvider with ChangeNotifier {
       if (response == null) return;
 
       final prefs = await SharedPreferences.getInstance();
-      final List<String> whitelist = prefs.getStringList('whitelisted_apps') ?? [];
+      final List<String> whitelist =
+          prefs.getStringList('whitelisted_apps') ?? [];
 
       // EKSEKUSI DI ISOLATE: Tidak menghambat UI Thread
       _lastScanResult = await compute(_processScanData, {
         'response': response,
         'whitelist': whitelist,
       });
-      
     } catch (e) {
       debugPrint("Scan Error: $e");
     } finally {
@@ -230,7 +234,9 @@ class SecurityProvider with ChangeNotifier {
   // --- Whitelist Actions ---
 
   Future<void> addToWhitelist(String packageName) async {
-    final success = await _platform.invokeMethod('addToWhitelist', {'packageName': packageName});
+    final success = await _platform.invokeMethod('addToWhitelist', {
+      'packageName': packageName,
+    });
     if (success == true) {
       if (!_trustedPackages.contains(packageName)) {
         _trustedPackages.add(packageName);
@@ -243,7 +249,9 @@ class SecurityProvider with ChangeNotifier {
   }
 
   Future<void> removeFromWhitelist(String packageName) async {
-    final success = await _platform.invokeMethod('removeFromWhitelist', {'packageName': packageName});
+    final success = await _platform.invokeMethod('removeFromWhitelist', {
+      'packageName': packageName,
+    });
     if (success == true) {
       _trustedPackages.remove(packageName);
       final prefs = await SharedPreferences.getInstance();

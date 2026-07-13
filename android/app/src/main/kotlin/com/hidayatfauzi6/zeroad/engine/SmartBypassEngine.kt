@@ -94,12 +94,12 @@ class SmartBypassEngine(private val context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
                 val appInfo = packageManager.getApplicationInfo(packageName, 0)
-                val declaredCategory = when (appInfo.category) {
+                when (appInfo.category) {
                     ApplicationInfo.CATEGORY_GAME -> return AppCategory.GAME_WITH_IAP
                     ApplicationInfo.CATEGORY_AUDIO -> return AppCategory.STREAMING
                     ApplicationInfo.CATEGORY_VIDEO -> return AppCategory.STREAMING
                     // CATEGORY_MAP only available on Android 13+
-                    else -> null
+                    else -> {}
                 }
             } catch (e: PackageManager.NameNotFoundException) {
                 // Ignore

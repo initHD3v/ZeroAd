@@ -15,10 +15,10 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-      // Default: semua method return null agar tidak crash
-      if (methodCall.method == 'requestNotificationPermission') return true;
-      return null;
-    });
+          // Default: semua method return null agar tidak crash
+          if (methodCall.method == 'requestNotificationPermission') return true;
+          return null;
+        });
   });
 
   // =============================================
@@ -67,7 +67,7 @@ void main() {
             'severity': 'HIGH',
             'code': 'STEALTH_INSTALLER',
             'description': 'Can install apps.',
-          }
+          },
         ],
         'zeroScore': 30,
       };
@@ -139,7 +139,10 @@ void main() {
       final restored = ScanResultModel.fromJson(json);
 
       expect(restored.totalInstalledPackages, original.totalInstalledPackages);
-      expect(restored.suspiciousPackagesCount, original.suspiciousPackagesCount);
+      expect(
+        restored.suspiciousPackagesCount,
+        original.suspiciousPackagesCount,
+      );
       expect(restored.threats.length, 0);
     });
   });
@@ -174,19 +177,35 @@ void main() {
     test('all supported codes return valid data for both languages', () {
       for (final code in ThreatDatabase.supportedCodes) {
         if (code == 'UNKNOWN') continue; // Skip fallback entry
-        
+
         final infoId = ThreatDatabase.getRiskInfo(code, 'id');
         final infoEn = ThreatDatabase.getRiskInfo(code, 'en');
 
         expect(infoId['title'], isNotEmpty, reason: '$code ID title is empty');
         expect(infoId['risk'], isNotEmpty, reason: '$code ID risk is empty');
-        expect(infoId['impact'], isNotEmpty, reason: '$code ID impact is empty');
-        expect(infoId['recommendation'], isNotEmpty, reason: '$code ID recommendation is empty');
+        expect(
+          infoId['impact'],
+          isNotEmpty,
+          reason: '$code ID impact is empty',
+        );
+        expect(
+          infoId['recommendation'],
+          isNotEmpty,
+          reason: '$code ID recommendation is empty',
+        );
 
         expect(infoEn['title'], isNotEmpty, reason: '$code EN title is empty');
         expect(infoEn['risk'], isNotEmpty, reason: '$code EN risk is empty');
-        expect(infoEn['impact'], isNotEmpty, reason: '$code EN impact is empty');
-        expect(infoEn['recommendation'], isNotEmpty, reason: '$code EN recommendation is empty');
+        expect(
+          infoEn['impact'],
+          isNotEmpty,
+          reason: '$code EN impact is empty',
+        );
+        expect(
+          infoEn['recommendation'],
+          isNotEmpty,
+          reason: '$code EN recommendation is empty',
+        );
       }
     });
 

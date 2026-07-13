@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
-import 'package:zeroad/home_page.dart'; 
+import 'package:zeroad/home_page.dart';
 import 'package:zeroad/logic/security_provider.dart';
 
 Future<void> main() async {
@@ -49,4 +49,3 @@ class MyApp extends StatelessWidget {
     );
   }
 }
-

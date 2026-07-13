@@ -54,10 +54,7 @@ class ActivityTab extends StatelessWidget {
           ),
           Expanded(
             child: TabBarView(
-              children: [
-                _buildTrafficTab(context),
-                _buildTrustedTab(context),
-              ],
+              children: [_buildTrafficTab(context), _buildTrustedTab(context)],
             ),
           ),
         ],
@@ -72,7 +69,12 @@ class ActivityTab extends StatelessWidget {
     final List<String> sortedKeys = sortedPkgKeys.where((pkg) {
       if (logFilter == 'ALL') return true;
       final logs = groupedLogs[pkg]!;
-      return logs.any((log) => log.contains('|BLOCKED|') || log.contains('AD_CONTENT') || log.contains('WEB_SHIELD'));
+      return logs.any(
+        (log) =>
+            log.contains('|BLOCKED|') ||
+            log.contains('AD_CONTENT') ||
+            log.contains('WEB_SHIELD'),
+      );
     }).toList();
 
     return Column(
@@ -86,118 +88,175 @@ class ActivityTab extends StatelessWidget {
               const SizedBox(width: 8),
               _buildFilterChip(context, "THREATS ONLY", 'ADS'),
               const Spacer(),
-              IconButton(onPressed: onClearLogs, icon: const Icon(Icons.refresh_rounded), color: colorScheme.primary),
+              IconButton(
+                onPressed: onClearLogs,
+                icon: const Icon(Icons.refresh_rounded),
+                color: colorScheme.primary,
+              ),
             ],
           ),
         ),
         Expanded(
-          child: sortedKeys.isEmpty 
-            ? _buildEmptyState(context, isAdBlockActive ? l10n.noTraffic : l10n.shieldInactive)
-            : ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                itemCount: sortedKeys.length,
-                itemBuilder: (context, index) {
-                  final pkg = sortedKeys[index];
-                  final logs = groupedLogs[pkg]!;
-                  final name = appNames[pkg] ?? "Unknown App";
-                  if (trustedPackages.contains(pkg)) return const SizedBox();
+          child: sortedKeys.isEmpty
+              ? _buildEmptyState(
+                  context,
+                  isAdBlockActive ? l10n.noTraffic : l10n.shieldInactive,
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: sortedKeys.length,
+                  itemBuilder: (context, index) {
+                    final pkg = sortedKeys[index];
+                    final logs = groupedLogs[pkg]!;
+                    final name = appNames[pkg] ?? "Unknown App";
+                    if (trustedPackages.contains(pkg)) return const SizedBox();
 
-                  final isSystem = pkg == "com.android.system" || pkg.startsWith("system.uid");
-                  final blockedCount = logs.where((l) => l.contains('|BLOCKED|') || l.contains('AD_CONTENT')).length;
-                  
-                  // Ambil domain terakhir untuk membantu identifikasi
-                  final lastLogParts = logs.first.split('|');
-                  final lastDomain = lastLogParts.length > 1 ? lastLogParts[1] : '';
+                    final isSystem =
+                        pkg == "com.android.system" ||
+                        pkg.startsWith("system.uid");
+                    final blockedCount = logs
+                        .where(
+                          (l) =>
+                              l.contains('|BLOCKED|') ||
+                              l.contains('AD_CONTENT'),
+                        )
+                        .length;
 
-                  return Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(color: colorScheme.outlineVariant.withAlpha(50)),
-                    ),
-                    child: ListTile(
-                      onTap: () => onShowAppDetails(name, pkg, logs),
-                      leading: AppIcon(packageName: pkg, fallbackLetter: isSystem ? "S" : name[0]),
-                      title: Text(
-                        isSystem 
-                          ? (blockedCount > 0 ? "Sistem: Tracker & Iklan" : "Layanan Sistem") 
-                          : name, 
-                        style: const TextStyle(fontWeight: FontWeight.bold), 
-                        maxLines: 1, 
-                        overflow: TextOverflow.ellipsis
+                    // Ambil domain terakhir untuk membantu identifikasi
+                    final lastLogParts = logs.first.split('|');
+                    final lastDomain = lastLogParts.length > 1
+                        ? lastLogParts[1]
+                        : '';
+
+                    return Card(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
                       ),
-                      subtitle: Text(
-                        isSystem 
-                          ? (blockedCount > 0 ? "Proteksi Privasi Aktif" : "Domain: $lastDomain") 
-                          : pkg, 
-                        style: TextStyle(
-                          fontSize: 11, 
-                          color: isSystem ? colorScheme.primary : null, 
-                          fontWeight: isSystem ? FontWeight.bold : null
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: colorScheme.outlineVariant.withAlpha(50),
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (blockedCount > 0)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(color: colorScheme.error, borderRadius: BorderRadius.circular(12)),
-                              child: Text("$blockedCount Ad", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                            ),
-                          const SizedBox(width: 8),
-                          const Icon(Icons.chevron_right),
-                        ],
+                      child: ListTile(
+                        onTap: () => onShowAppDetails(name, pkg, logs),
+                        leading: AppIcon(
+                          packageName: pkg,
+                          fallbackLetter: isSystem ? "S" : name[0],
+                        ),
+                        title: Text(
+                          isSystem
+                              ? (blockedCount > 0
+                                    ? "Sistem: Tracker & Iklan"
+                                    : "Layanan Sistem")
+                              : name,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          isSystem
+                              ? (blockedCount > 0
+                                    ? "Proteksi Privasi Aktif"
+                                    : "Domain: $lastDomain")
+                              : pkg,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isSystem ? colorScheme.primary : null,
+                            fontWeight: isSystem ? FontWeight.bold : null,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (blockedCount > 0)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: colorScheme.error,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  "$blockedCount Ad",
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(width: 8),
+                            const Icon(Icons.chevron_right),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
+                    );
+                  },
+                ),
         ),
       ],
     );
   }
 
   Widget _buildTrustedTab(BuildContext context) {
-    return trustedPackages.isEmpty 
-      ? _buildEmptyState(context, l10n.isId ? "Belum ada aplikasi terpercaya" : "No trusted apps yet")
-      : ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: trustedPackages.length,
-          itemBuilder: (context, index) {
-            final pkg = trustedPackages[index];
-            return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.blue.withAlpha(50)),
-              ),
-              child: ListTile(
-                leading: AppIcon(packageName: pkg),
-                title: FutureBuilder<String>(
-                  future: const MethodChannel('zeroad.security/scanner').invokeMethod<String>('getAppLabel', {'packageName': pkg}).then((value) => value ?? pkg),
-                  builder: (context, snapshot) {
-                    return Text(
-                      snapshot.data ?? pkg, 
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    );
-                  },
+    return trustedPackages.isEmpty
+        ? _buildEmptyState(
+            context,
+            l10n.isId ? "Belum ada aplikasi terpercaya" : "No trusted apps yet",
+          )
+        : ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            itemCount: trustedPackages.length,
+            itemBuilder: (context, index) {
+              final pkg = trustedPackages[index];
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Colors.blue.withAlpha(50)),
                 ),
-                subtitle: Text(l10n.isId ? "Akses Internet Langsung" : "Direct Internet Access", style: const TextStyle(fontSize: 11)),
-                trailing: IconButton(
-                  icon: const Icon(Icons.block_rounded, color: Colors.red),
-                  onPressed: () => onRemoveFromWhitelist(pkg),
+                child: ListTile(
+                  leading: AppIcon(packageName: pkg),
+                  title: FutureBuilder<String>(
+                    future: const MethodChannel('zeroad.security/scanner')
+                        .invokeMethod<String>('getAppLabel', {
+                          'packageName': pkg,
+                        })
+                        .then((value) => value ?? pkg),
+                    builder: (context, snapshot) {
+                      return Text(
+                        snapshot.data ?? pkg,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      );
+                    },
+                  ),
+                  subtitle: Text(
+                    l10n.isId
+                        ? "Akses Internet Langsung"
+                        : "Direct Internet Access",
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.block_rounded, color: Colors.red),
+                    onPressed: () => onRemoveFromWhitelist(pkg),
+                  ),
                 ),
-              ),
-            );
-          },
-        );
+              );
+            },
+          );
   }
 
   Widget _buildEmptyState(BuildContext context, String message) {
@@ -205,9 +264,18 @@ class ActivityTab extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.history_toggle_off_rounded, size: 64, color: Theme.of(context).colorScheme.onSurfaceVariant.withAlpha(50)),
+          Icon(
+            Icons.history_toggle_off_rounded,
+            size: 64,
+            color: Theme.of(context).colorScheme.onSurfaceVariant.withAlpha(50),
+          ),
           const SizedBox(height: 16),
-          Text(message, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          Text(
+            message,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
     );
@@ -221,10 +289,21 @@ class ActivityTab extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? colorScheme.primary : colorScheme.surfaceContainerHighest,
+          color: isSelected
+              ? colorScheme.primary
+              : colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Text(label, style: TextStyle(color: isSelected ? colorScheme.onPrimary : colorScheme.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.bold)),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected
+                ? colorScheme.onPrimary
+                : colorScheme.onSurfaceVariant,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
     );
   }

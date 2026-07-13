@@ -1,9 +1,8 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 /// Widget [AppIcon] adalah komponen modular untuk menampilkan ikon aplikasi Android.
-/// 
+///
 /// Keunggulan:
 /// 1. Memiliki internal cache [_iconCache] untuk menghindari pemanggilan Native berulang.
 /// 2. Menggunakan [GaplessPlayback] untuk transisi visual yang halus.
@@ -25,13 +24,17 @@ class AppIcon extends StatefulWidget {
 }
 
 class _AppIconState extends State<AppIcon> {
-  static const MethodChannel _platform = MethodChannel('zeroad.security/scanner');
+  static const MethodChannel _platform = MethodChannel(
+    'zeroad.security/scanner',
+  );
   static final Map<String, Uint8List> _iconCache = {};
 
   Future<Uint8List?> _getAppIcon(String packageName) async {
     if (_iconCache.containsKey(packageName)) return _iconCache[packageName];
     try {
-      final Uint8List? icon = await _platform.invokeMethod('getAppIcon', {'packageName': packageName});
+      final Uint8List? icon = await _platform.invokeMethod('getAppIcon', {
+        'packageName': packageName,
+      });
       if (icon != null) {
         _iconCache[packageName] = icon;
       }
@@ -64,7 +67,7 @@ class _AppIconState extends State<AppIcon> {
             ),
           );
         }
-        
+
         // Fallback UI
         return FutureBuilder<String>(
           future: _getAppLabel(widget.packageName),
@@ -74,12 +77,15 @@ class _AppIconState extends State<AppIcon> {
               width: widget.size,
               height: widget.size,
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer.withAlpha(50),
+                color: Theme.of(
+                  context,
+                ).colorScheme.primaryContainer.withAlpha(50),
                 borderRadius: BorderRadius.circular(widget.size * 0.25),
               ),
               child: Center(
                 child: Text(
-                  widget.fallbackLetter ?? (label.isNotEmpty ? label[0].toUpperCase() : "?"),
+                  widget.fallbackLetter ??
+                      (label.isNotEmpty ? label[0].toUpperCase() : "?"),
                   style: TextStyle(
                     fontSize: widget.size * 0.4,
                     fontWeight: FontWeight.bold,
@@ -96,7 +102,9 @@ class _AppIconState extends State<AppIcon> {
 
   Future<String> _getAppLabel(String packageName) async {
     try {
-      final String label = await _platform.invokeMethod('getAppLabel', {'packageName': packageName});
+      final String label = await _platform.invokeMethod('getAppLabel', {
+        'packageName': packageName,
+      });
       return label;
     } catch (e) {
       return packageName;
